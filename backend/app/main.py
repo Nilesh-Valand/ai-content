@@ -1,4 +1,5 @@
 import os
+from typing import List
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
@@ -7,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 load_dotenv()
 
 from .analyzer import analyze_text
+from . import db
 from .humanizer import humanize_content
 from .models import (
     AnalyzeRequest,
@@ -14,6 +16,8 @@ from .models import (
     HumanizeRequest,
     HumanizeResponse,
     OverallResult,
+    TrainedPhrase,
+    TrainedPhraseCreate,
 )
 from .suggestions import generate_suggestions
 
@@ -89,3 +93,22 @@ def humanize(payload: HumanizeRequest):
         raise HTTPException(status_code=502, detail="Humanization returned empty output.")
 
     return HumanizeResponse(humanized_content=humanized)
+
+
+@app.post("/train/phrases", response_model=TrainedPhrase)
+def create_phrase(payload: TrainedPhraseCreate):
+    row = db.create_trained_phrase(payload.ai_phrase, payload.humanized_phrase)
+    return TrainedPhrase(**row)
+
+
+@app.get("/train/phrases", response_model=List[TrainedPhrase])
+def get_phrases():
+    return [TrainedPhrase(**row) for row in db.list_trained_phrases()]
+
+
+@app.delete("/train/phrases/{phrase_id}")
+def remove_phrase(phrase_id: int):
+    deleted = db.delete_trained_phrase(phrase_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Phrase not found")
+    return {"status": "deleted", "id": phrase_id}

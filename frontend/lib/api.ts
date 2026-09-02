@@ -54,6 +54,52 @@ export async function analyzeContent(
   return res.json();
 }
 
+export interface TrainedPhrase {
+  id: number;
+  ai_phrase: string;
+  humanized_phrase: string;
+  created_at: string;
+}
+
+export async function listTrainedPhrases(): Promise<TrainedPhrase[]> {
+  const res = await fetch(`${API_BASE}/train/phrases`);
+  if (!res.ok) {
+    throw new Error(`Failed to load trained phrases (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function createTrainedPhrase(
+  aiPhrase: string,
+  humanizedPhrase: string
+): Promise<TrainedPhrase> {
+  const res = await fetch(`${API_BASE}/train/phrases`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ai_phrase: aiPhrase, humanized_phrase: humanizedPhrase }),
+  });
+  if (!res.ok) {
+    let detail = "";
+    try {
+      const body = await res.json();
+      detail = Array.isArray(body.detail)
+        ? body.detail.map((d: { msg?: string }) => d.msg).join(", ")
+        : body.detail || "";
+    } catch {
+      detail = await res.text().catch(() => "");
+    }
+    throw new Error(`Could not save phrase (${res.status}): ${detail || res.statusText}`);
+  }
+  return res.json();
+}
+
+export async function deleteTrainedPhrase(id: number): Promise<void> {
+  const res = await fetch(`${API_BASE}/train/phrases/${id}`, { method: "DELETE" });
+  if (!res.ok) {
+    throw new Error(`Could not delete phrase (${res.status})`);
+  }
+}
+
 export interface HumanizeResponse {
   humanized_content: string;
 }

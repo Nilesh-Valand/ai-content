@@ -70,3 +70,27 @@ class HumanizeRequest(BaseModel):
 
 class HumanizeResponse(BaseModel):
     humanized_content: str
+
+
+class TrainedPhraseCreate(BaseModel):
+    ai_phrase: str = Field(..., max_length=2000)
+    humanized_phrase: str = Field(..., max_length=2000)
+
+    @field_validator("ai_phrase", "humanized_phrase", mode="before")
+    @classmethod
+    def validate_non_empty(cls, value):
+        if value is None:
+            raise ValueError("this field is required")
+
+        value = str(value).strip()
+        if not value:
+            raise ValueError("this field must not be empty")
+
+        return value
+
+
+class TrainedPhrase(BaseModel):
+    id: int
+    ai_phrase: str
+    humanized_phrase: str
+    created_at: str

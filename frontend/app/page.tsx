@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { analyzeContent, AnalyzeResponse } from "@/lib/api";
 import VerdictStamp from "@/components/VerdictStamp";
 import MarkedManuscript from "@/components/MarkedManuscript";
@@ -33,12 +34,22 @@ export default function Home() {
   return (
     <main className="max-w-3xl mx-auto px-6 sm:px-8 py-14 sm:py-20">
       <header className="mb-10">
-        <p className="font-mono text-[11px] tracking-[0.18em] uppercase text-pen-dim mb-3">
-          Manuscript Review
-        </p>
-        <h1 className="font-display text-4xl sm:text-5xl leading-tight">
-          AI Content Detector
-        </h1>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="font-mono text-[11px] tracking-[0.18em] uppercase text-pen-dim mb-3">
+              Manuscript Review
+            </p>
+            <h1 className="font-display text-4xl sm:text-5xl leading-tight">
+              AI Content Detector
+            </h1>
+          </div>
+          <Link
+            href="/train"
+            className="font-mono text-xs uppercase tracking-[0.12em] text-ink-muted hover:text-ink transition-colors whitespace-nowrap mt-1"
+          >
+            Train Phrases →
+          </Link>
+        </div>
         <p className="font-body text-ink-muted mt-3 max-w-lg">
           A rule-based readout of vocabulary, structure, and specificity —
           the same signals a careful editor watches for.
