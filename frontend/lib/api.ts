@@ -53,3 +53,28 @@ export async function analyzeContent(
 
   return res.json();
 }
+
+export interface HumanizeResponse {
+  humanized_content: string;
+}
+
+export async function humanizeContent(content: string): Promise<HumanizeResponse> {
+  const res = await fetch(`${API_BASE}/humanize`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content }),
+  });
+
+  if (!res.ok) {
+    let detail = "";
+    try {
+      const body = await res.json();
+      detail = body.detail || "";
+    } catch {
+      detail = await res.text().catch(() => "");
+    }
+    throw new Error(`Humanization failed (${res.status}): ${detail || res.statusText}`);
+  }
+
+  return res.json();
+}

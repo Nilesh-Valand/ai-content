@@ -50,3 +50,23 @@ class AnalyzeResponse(BaseModel):
     sentence_scores: List[SentenceScore]
     highlighted_phrases: List[str]
     suggestions: List[Suggestion]
+
+
+class HumanizeRequest(BaseModel):
+    content: str = Field(..., max_length=20000)
+
+    @field_validator("content", mode="before")
+    @classmethod
+    def validate_content(cls, value):
+        if value is None:
+            raise ValueError("content is required")
+
+        value = str(value).strip()
+        if not value:
+            raise ValueError("content must not be empty")
+
+        return value
+
+
+class HumanizeResponse(BaseModel):
+    humanized_content: str

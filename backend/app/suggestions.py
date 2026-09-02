@@ -20,6 +20,11 @@ from .models import DetectedPattern, Suggestion, SentenceScore
 
 _client = None
 
+# Must be a model currently served by the account's Groq API key — models get
+# deprecated/removed over time and a stale name here fails every request with
+# a 404 NotFoundError. Check what's actually available with client.models.list().
+DEFAULT_MODEL = "openai/gpt-oss-120b"
+
 
 def get_client():
     global _client
@@ -76,13 +81,14 @@ def generate_suggestions(
     ]
 
     client = get_client()
-    model = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
+    model = os.environ.get("GROQ_MODEL", DEFAULT_MODEL)
 
     try:
         completion = client.chat.completions.create(
             model=model,
             temperature=0.4,
-            max_tokens=1200,
+            max_tokens=1500,
+            reasoning_effort="low",
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": build_user_prompt(payload)},

@@ -7,7 +7,14 @@ from fastapi.middleware.cors import CORSMiddleware
 load_dotenv()
 
 from .analyzer import analyze_text
-from .models import AnalyzeRequest, AnalyzeResponse, OverallResult
+from .humanizer import humanize_content
+from .models import (
+    AnalyzeRequest,
+    AnalyzeResponse,
+    HumanizeRequest,
+    HumanizeResponse,
+    OverallResult,
+)
 from .suggestions import generate_suggestions
 
 app = FastAPI(title="AI Content Detection API", version="1.0.0")
@@ -63,3 +70,22 @@ def analyze(payload: AnalyzeRequest):
         highlighted_phrases=result["highlighted_phrases"],
         suggestions=suggestions,
     )
+
+
+@app.post("/humanize", response_model=HumanizeResponse)
+def humanize(payload: HumanizeRequest):
+    try:
+        humanized = humanize_content(payload.content)
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Humanization failed ({type(e).__name__}). "
+                   f"Try again or check GROQ_API_KEY / model name.",
+        )
+
+    if not humanized:
+        raise HTTPException(status_code=502, detail="Humanization returned empty output.")
+
+    return HumanizeResponse(humanized_content=humanized)

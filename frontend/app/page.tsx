@@ -6,6 +6,7 @@ import VerdictStamp from "@/components/VerdictStamp";
 import MarkedManuscript from "@/components/MarkedManuscript";
 import PatternNotes from "@/components/PatternNotes";
 import SuggestionsPanel from "@/components/SuggestionsPanel";
+import HumanizePanel from "@/components/HumanizePanel";
 
 const PLACEHOLDER = `Paste a paragraph or two here — a blog post, an email draft, a report section — and I'll mark it up the way an editor would.`;
 
@@ -84,6 +85,7 @@ export default function Home() {
             highlightedPhrases={result.highlighted_phrases}
           />
           <SuggestionsPanel suggestions={result.suggestions} />
+          <HumanizePanel content={content} />
         </div>
       )}
     </main>
