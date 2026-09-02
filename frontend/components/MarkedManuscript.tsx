@@ -1,4 +1,5 @@
 import { SentenceScore } from "@/lib/api";
+import { ScrollText } from "lucide-react";
 
 function escapeRegExp(s: string) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -13,7 +14,7 @@ function markSentence(text: string, phrases: string[]) {
   return parts.map((part, i) => {
     const isMatch = phrases.some((p) => p.toLowerCase() === part.toLowerCase());
     return isMatch ? (
-      <mark key={i} className="flag-mark bg-transparent text-pen-dim">
+      <mark key={i} className="flag-mark bg-transparent text-danger-600 font-medium">
         {part}
       </mark>
     ) : (
@@ -22,10 +23,10 @@ function markSentence(text: string, phrases: string[]) {
   });
 }
 
-function likelihoodTint(pct: number) {
-  if (pct >= 60) return "text-pen";
-  if (pct >= 30) return "text-ink-muted";
-  return "text-verdict";
+function likelihoodChip(pct: number) {
+  if (pct >= 60) return "bg-danger-50 text-danger-600";
+  if (pct >= 30) return "bg-warn-50 text-warn-600";
+  return "bg-success-50 text-success-600";
 }
 
 export default function MarkedManuscript({
@@ -36,26 +37,27 @@ export default function MarkedManuscript({
   highlightedPhrases: string[];
 }) {
   return (
-    <div className="fade-in">
-      <p className="font-mono text-[11px] tracking-[0.18em] uppercase text-ink-muted mb-4">
-        Marked Manuscript
+    <div className="fade-in rounded-2xl border border-border bg-surface shadow-card p-6 h-full">
+      <p className="text-xs font-semibold uppercase tracking-wider text-ink-faint mb-4 flex items-center gap-1.5">
+        <ScrollText className="h-3.5 w-3.5" strokeWidth={2.5} />
+        Sentence-by-Sentence Markup
       </p>
-      <div className="space-y-3">
+      <div className="space-y-1 max-h-[520px] overflow-y-auto pr-1">
         {sentences.map((s) => (
-          <div key={s.index} className="flex gap-4 items-baseline group">
-            <span className="font-mono text-[10px] text-ink-faint w-14 shrink-0 text-right pt-1">
+          <div
+            key={s.index}
+            className="flex gap-3 items-baseline rounded-lg px-2 py-2 hover:bg-surface-muted transition-colors"
+          >
+            <span
+              className={`font-mono text-[10px] font-semibold shrink-0 rounded-full px-1.5 py-0.5 w-11 text-center ${likelihoodChip(
+                s.ai_likelihood
+              )}`}
+            >
               {s.ai_likelihood.toFixed(0)}%
             </span>
-            <p className="font-body text-lg leading-relaxed">
+            <p className="text-[15px] leading-relaxed text-ink">
               {markSentence(s.text, highlightedPhrases)}
             </p>
-            <span
-              className={`font-mono text-[10px] shrink-0 pt-1 ${likelihoodTint(
-                s.ai_likelihood
-              )} opacity-0 group-hover:opacity-100 transition-opacity hidden sm:inline`}
-            >
-              §{s.index}
-            </span>
           </div>
         ))}
       </div>

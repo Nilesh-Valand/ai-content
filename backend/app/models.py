@@ -45,6 +45,7 @@ class OverallResult(BaseModel):
 
 
 class AnalyzeResponse(BaseModel):
+    id: int
     overall: OverallResult
     detected_patterns: List[DetectedPattern]
     sentence_scores: List[SentenceScore]
@@ -54,6 +55,7 @@ class AnalyzeResponse(BaseModel):
 
 class HumanizeRequest(BaseModel):
     content: str = Field(..., max_length=20000)
+    project_id: Optional[int] = None
 
     @field_validator("content", mode="before")
     @classmethod
@@ -89,8 +91,46 @@ class TrainedPhraseCreate(BaseModel):
         return value
 
 
+class TrainedPhraseUpdate(BaseModel):
+    ai_phrase: str = Field(..., max_length=2000)
+    humanized_phrase: str = Field(..., max_length=2000)
+
+    @field_validator("ai_phrase", "humanized_phrase", mode="before")
+    @classmethod
+    def validate_non_empty(cls, value):
+        if value is None:
+            raise ValueError("this field is required")
+
+        value = str(value).strip()
+        if not value:
+            raise ValueError("this field must not be empty")
+
+        return value
+
+
 class TrainedPhrase(BaseModel):
     id: int
     ai_phrase: str
     humanized_phrase: str
+    created_at: str
+
+
+class ProjectSummary(BaseModel):
+    id: int
+    content: str
+    ai_writing_likelihood: float
+    confidence: Literal["Low", "Medium", "High"]
+    has_humanized: bool
+    created_at: str
+
+
+class ProjectDetail(BaseModel):
+    id: int
+    content: str
+    overall: OverallResult
+    detected_patterns: List[DetectedPattern]
+    sentence_scores: List[SentenceScore]
+    highlighted_phrases: List[str]
+    suggestions: List[Suggestion]
+    humanized_content: Optional[str] = None
     created_at: str

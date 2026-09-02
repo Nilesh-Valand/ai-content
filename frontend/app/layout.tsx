@@ -1,12 +1,12 @@
 import type { Metadata } from "next";
-import { Newsreader, IBM_Plex_Mono } from "next/font/google";
+import { Inter, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
+import Nav from "@/components/Nav";
 
-const display = Newsreader({
+const sans = Inter({
   subsets: ["latin"],
-  weight: ["400", "500", "600"],
-  style: ["normal", "italic"],
-  variable: "--font-display",
+  weight: ["400", "500", "600", "700", "800"],
+  variable: "--font-sans",
 });
 
 const mono = IBM_Plex_Mono({
@@ -16,8 +16,8 @@ const mono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Manuscript Review — AI Content Detector",
-  description: "Rule-based AI-writing likelihood analysis with editorial markup.",
+  title: "ContentIQ — AI Content Detector",
+  description: "Detect AI-written content and humanize it with your own trained style.",
 };
 
 export default function RootLayout({
@@ -26,8 +26,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={`${display.variable} ${mono.variable}`}>
-      <body className="font-display bg-paper text-ink antialiased min-h-screen">
+    <html lang="en" className={`${sans.variable} ${mono.variable}`}>
+      <body className="font-sans bg-canvas text-ink antialiased min-h-screen">
+        <Nav />
         {children}
       </body>
     </html>

@@ -2,9 +2,18 @@
 
 import { useState } from "react";
 import { humanizeContent } from "@/lib/api";
+import { Wand2, Copy, Check, Loader2 } from "lucide-react";
 
-export default function HumanizePanel({ content }: { content: string }) {
-  const [humanized, setHumanized] = useState<string | null>(null);
+export default function HumanizePanel({
+  content,
+  projectId,
+  initialHumanized,
+}: {
+  content: string;
+  projectId?: number;
+  initialHumanized?: string | null;
+}) {
+  const [humanized, setHumanized] = useState<string | null>(initialHumanized ?? null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -14,7 +23,7 @@ export default function HumanizePanel({ content }: { content: string }) {
     setError(null);
     setCopied(false);
     try {
-      const res = await humanizeContent(content);
+      const res = await humanizeContent(content, projectId);
       setHumanized(res.humanized_content);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong.");
@@ -35,36 +44,55 @@ export default function HumanizePanel({ content }: { content: string }) {
   }
 
   return (
-    <div className="fade-in">
-      <div className="flex items-center justify-between mb-4">
-        <p className="font-mono text-[11px] tracking-[0.18em] uppercase text-ink-muted">
+    <div className="fade-in rounded-2xl border border-border bg-surface shadow-card p-6">
+      <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
+        <p className="text-xs font-semibold uppercase tracking-wider text-ink-faint flex items-center gap-1.5">
+          <Wand2 className="h-3.5 w-3.5" strokeWidth={2.5} />
           Humanize Content
         </p>
         <button
           onClick={handleHumanize}
           disabled={loading}
-          className="font-mono text-xs uppercase tracking-[0.12em] bg-ink text-paper px-5 py-2.5 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-pen-dim transition-colors"
+          className="inline-flex items-center gap-2 rounded-lg bg-brand-gradient text-white text-sm font-semibold px-4 py-2 shadow-lift disabled:opacity-50 disabled:cursor-not-allowed hover:brightness-110 transition"
         >
+          {loading ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Wand2 className="h-4 w-4" />
+          )}
           {loading ? "Rewriting…" : humanized ? "Regenerate" : "Humanize Content"}
         </button>
       </div>
 
       {error && (
-        <p className="font-mono text-sm text-pen border border-pen bg-pen-soft px-4 py-3 mb-4">
+        <p className="text-sm text-danger-600 bg-danger-50 border border-danger-400/30 rounded-lg px-4 py-3 mb-4">
           {error}
         </p>
       )}
 
+      {loading && !humanized && (
+        <div className="rounded-xl border border-border bg-surface-muted p-4 space-y-2 animate-pulse-glow">
+          <div className="h-3.5 bg-border-strong rounded w-11/12" />
+          <div className="h-3.5 bg-border-strong rounded w-10/12" />
+          <div className="h-3.5 bg-border-strong rounded w-8/12" />
+        </div>
+      )}
+
       {humanized && (
-        <div className="border border-rule px-4 py-4">
-          <p className="font-body text-lg leading-relaxed whitespace-pre-wrap">
+        <div className="rounded-xl border border-success-400/30 bg-success-50/40 p-4">
+          <p className="text-[15px] leading-relaxed whitespace-pre-wrap text-ink">
             {humanized}
           </p>
           <div className="flex justify-end mt-3">
             <button
               onClick={handleCopy}
-              className="font-mono text-[11px] uppercase tracking-[0.12em] text-ink-muted hover:text-ink transition-colors"
+              className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1.5 text-xs font-medium text-ink-muted hover:text-ink hover:border-border-strong transition-colors"
             >
+              {copied ? (
+                <Check className="h-3.5 w-3.5 text-success-600" />
+              ) : (
+                <Copy className="h-3.5 w-3.5" />
+              )}
               {copied ? "Copied" : "Copy"}
             </button>
           </div>

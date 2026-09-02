@@ -3,42 +3,68 @@
 @tailwind utilities;
 
 html {
-  background: #FAFAF6;
+  background: #f5f6fb;
 }
 
 body {
-  color: #1B1B18;
+  color: #14162b;
 }
 
 ::selection {
-  background: #F3DEDA;
-  color: #1B1B18;
+  background: #e4defd;
+  color: #14162b;
+}
+
+* {
+  scrollbar-color: #d6d9ea transparent;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #d6d9ea;
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
 }
 
 .flag-mark {
-  border-bottom: 2px solid #B23A2E;
-  text-decoration-style: wavy;
-  background: linear-gradient(transparent 65%, #F3DEDA 65%);
+  border-bottom: 2px solid #ef4444;
+  background: linear-gradient(transparent 68%, #fee2e2 68%);
   padding-bottom: 1px;
-}
-
-.rule-hairline {
-  border-color: #DDD6C8;
+  border-radius: 2px;
 }
 
 @media (prefers-reduced-motion: no-preference) {
   .fade-in {
-    animation: fadeIn 0.4s ease-out both;
+    animation: fadeIn 0.35s ease-out both;
   }
 }
 
 @keyframes fadeIn {
   from {
     opacity: 0;
-    transform: translateY(4px);
+    transform: translateY(6px);
   }
   to {
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+@keyframes pulseGlow {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+.animate-pulse-glow {
+  animation: pulseGlow 1.4s ease-in-out infinite;
 }

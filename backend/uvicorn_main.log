@@ -1,0 +1,55 @@
+INFO:     Will watch for changes in these directories: ['D:\\ai-content-detector\\ai-detector\\backend']
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+INFO:     Started reloader process [20516] using WatchFiles
+INFO:     Started server process [16600]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     127.0.0.1:58620 - "GET /health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58621 - "POST /analyze HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58624 - "POST /humanize HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58626 - "GET /projects HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58627 - "GET /projects/1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58632 - "DELETE /projects/1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58633 - "GET /projects HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58708 - "POST /analyze HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58710 - "POST /humanize HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58711 - "GET /projects HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58712 - "GET /projects/2 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59484 - "GET /train/phrases HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59485 - "GET /train/phrases HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59530 - "GET /train/phrases HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59531 - "GET /train/phrases HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59531 - "GET /projects HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59530 - "GET /projects HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59539 - "GET /train/phrases HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59540 - "GET /train/phrases HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59542 - "GET /train/phrases HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59543 - "GET /train/phrases HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59543 - "GET /projects HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59542 - "GET /projects HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59542 - "GET /train/phrases HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59543 - "GET /train/phrases HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59543 - "GET /projects HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59542 - "GET /projects HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59542 - "GET /train/phrases HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59543 - "GET /train/phrases HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59747 - "GET /projects HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59747 - "GET /projects HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59943 - "GET /projects HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59944 - "GET /projects HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60138 - "GET /projects HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60139 - "GET /projects HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60139 - "GET /train/phrases HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60138 - "GET /train/phrases HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60138 - "GET /projects HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60139 - "GET /projects HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60139 - "GET /projects HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60138 - "GET /projects HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60143 - "GET /projects HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60144 - "GET /projects HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60144 - "GET /train/phrases HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60143 - "GET /train/phrases HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60159 - "GET /projects HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60160 - "GET /projects HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60211 - "GET /projects HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60212 - "GET /projects HTTP/1.1" 200 OK

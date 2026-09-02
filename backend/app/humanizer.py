@@ -7,18 +7,20 @@ changing its meaning. This is a separate concern from scoring/suggestions:
 it doesn't touch the detector's rule-based signals at all.
 
 User-trained phrase pairs (see db.py) are applied two ways:
-  1. Exact match: a sentence that's an exact (whitespace/case/trailing-
-     punctuation-insensitive) match for a trained AI phrase is swapped
-     in verbatim for its trained humanized version — never touched by the LLM.
+  1. Exact match: any substring of the content that's an exact (whitespace/
+     case/trailing-punctuation-insensitive) match for a trained AI phrase —
+     whether it's a whole sentence, a clause, or just a few words — is
+     swapped in verbatim for its trained humanized version. Matches are
+     protected with sentinel markers so the LLM copies them through
+     unchanged instead of rewriting them.
   2. Style guidance: all trained pairs are shown to the LLM as few-shot
      examples so it leans toward the user's preferred tone even for
-     sentences it hasn't seen before.
+     phrases it hasn't seen before.
 """
-import json
 import os
-from typing import List
+import re
+from typing import List, Tuple
 
-from .analyzer import get_nlp
 from .db import list_trained_phrases
 from .suggestions import DEFAULT_MODEL, get_client
 
@@ -34,11 +36,41 @@ Guidelines:
 - Do not add commentary, notes, or explanations about the rewrite."""
 
 MAX_FEWSHOT_EXAMPLES = 12
+LOCK_OPEN = "%%%LOCK%%%"
+LOCK_CLOSE = "%%%ENDLOCK%%%"
 
 
 def _normalize(text: str) -> str:
     collapsed = " ".join(text.strip().split())
-    return collapsed.rstrip(" .!?").lower()
+    return collapsed.rstrip(" .!?,;:").lower()
+
+
+def _phrase_regex_part(phrase: str) -> str:
+    tokens = phrase.strip().split()
+    return r"\s+".join(re.escape(t) for t in tokens)
+
+
+def _find_exact_matches(content: str, trained: List[dict]) -> List[Tuple[int, int, str]]:
+    """Locate non-overlapping occurrences of trained AI phrases anywhere in the
+    content — not just whole sentences. Longer phrases win when matches overlap."""
+    ordered = sorted(trained, key=lambda t: len(t["ai_phrase"]), reverse=True)
+    lookup = {_normalize(t["ai_phrase"]): t["humanized_phrase"].strip() for t in ordered}
+    pattern = re.compile(
+        "(?:" + "|".join(_phrase_regex_part(t["ai_phrase"]) for t in ordered) + ")",
+        re.IGNORECASE,
+    )
+
+    matches: List[Tuple[int, int, str]] = []
+    occupied_end = -1
+    for m in pattern.finditer(content):
+        if m.start() < occupied_end:
+            continue
+        replacement = lookup.get(_normalize(m.group(0)))
+        if replacement is None:
+            continue
+        matches.append((m.start(), m.end(), replacement))
+        occupied_end = m.end()
+    return matches
 
 
 def _fewshot_block(trained: List[dict]) -> str:
@@ -57,63 +89,54 @@ def _fewshot_block(trained: List[dict]) -> str:
     return "\n".join(lines)
 
 
-def _humanize_whole_text(content: str, trained: List[dict]) -> str:
+def _call_groq(system_prompt: str, user_content: str) -> str:
     client = get_client()
     model = os.environ.get("GROQ_MODEL", DEFAULT_MODEL)
+    max_tokens = min(4096, max(512, int(len(user_content.split()) * 2.5)))
 
+    completion = client.chat.completions.create(
+        model=model,
+        temperature=0.7,
+        max_tokens=max_tokens,
+        reasoning_effort="low",
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content},
+        ],
+    )
+    return completion.choices[0].message.content.strip()
+
+
+def _humanize_whole_text(content: str, trained: List[dict]) -> str:
     system_prompt = (
         BASE_GUIDELINES
         + _fewshot_block(trained)
         + '\n\nReturn ONLY the rewritten text, nothing else. No preamble, no '
           "markdown headers, no quotation marks wrapping the whole output."
     )
-    max_tokens = min(4096, max(512, int(len(content.split()) * 2.5)))
-
-    completion = client.chat.completions.create(
-        model=model,
-        temperature=0.7,
-        max_tokens=max_tokens,
-        reasoning_effort="low",
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": content},
-        ],
-    )
-    return completion.choices[0].message.content.strip()
+    return _call_groq(system_prompt, content)
 
 
-def _humanize_chunks(chunks: List[str], trained: List[dict]) -> List[str]:
-    client = get_client()
-    model = os.environ.get("GROQ_MODEL", DEFAULT_MODEL)
-
+def _humanize_locked_text(locked_content: str, trained: List[dict]) -> str:
     system_prompt = (
         BASE_GUIDELINES
         + _fewshot_block(trained)
-        + '\n\nYou will receive a JSON array of text chunks under "chunks". Rewrite '
-          "EACH chunk independently following the same guidelines. Return ONLY a "
-          "JSON array of the rewritten chunk strings, in the same order and the "
-          "same length as the input array. No markdown, no preamble, no code fences."
+        + f"\n\nCRITICAL RULE — HIGHEST PRIORITY: The text contains segments wrapped "
+          f"like this: {LOCK_OPEN}some text{LOCK_CLOSE}. You MUST copy the text inside "
+          f"every {LOCK_OPEN}...{LOCK_CLOSE} pair character-for-character, with zero "
+          f"changes — same words, same punctuation, same capitalization. Do NOT "
+          f"paraphrase, smooth, merge, or adjust it in any way, even if it makes the "
+          f"surrounding sentence read slightly awkwardly. Remove only the {LOCK_OPEN} "
+          f"and {LOCK_CLOSE} marker tokens themselves from your output; keep the text "
+          f"between them untouched. This rule overrides every other guideline above "
+          f"when they conflict. Rewrite ONLY the text outside the markers, following "
+          f"the guidelines above."
+          "\n\nReturn ONLY the rewritten text, nothing else. No preamble, no "
+          "markdown headers, no quotation marks wrapping the whole output."
     )
-    max_tokens = min(4096, max(512, int(sum(len(c.split()) for c in chunks) * 3.0)))
-
-    completion = client.chat.completions.create(
-        model=model,
-        temperature=0.7,
-        max_tokens=max_tokens,
-        reasoning_effort="low",
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": json.dumps({"chunks": chunks}, ensure_ascii=False)},
-        ],
-    )
-    raw = completion.choices[0].message.content.strip()
-    raw = raw.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
-    parsed = json.loads(raw)
-
-    if not isinstance(parsed, list) or len(parsed) != len(chunks):
-        raise ValueError("LLM chunk rewrite response did not match expected shape")
-
-    return [str(item).strip() for item in parsed]
+    rewritten = _call_groq(system_prompt, locked_content)
+    # Safety net in case the model echoes a marker back despite instructions.
+    return rewritten.replace(LOCK_OPEN, "").replace(LOCK_CLOSE, "")
 
 
 def humanize_content(content: str) -> str:
@@ -122,43 +145,21 @@ def humanize_content(content: str) -> str:
     if not trained:
         return _humanize_whole_text(content, trained)
 
-    nlp = get_nlp()
-    sentences = [s.text.strip() for s in nlp(content).sents if s.text.strip()]
-    if not sentences:
+    matches = _find_exact_matches(content, trained)
+    if not matches:
         return _humanize_whole_text(content, trained)
 
-    lookup = {_normalize(t["ai_phrase"]): t["humanized_phrase"].strip() for t in trained}
+    # Fast path: the entire content is itself exactly one trained phrase.
+    if len(matches) == 1 and matches[0][0] == 0 and matches[0][1] >= len(content.rstrip()):
+        return matches[0][2]
 
-    matched = [_normalize(s) in lookup for s in sentences]
-    if not any(matched):
-        return _humanize_whole_text(content, trained)
+    pieces = []
+    cursor = 0
+    for start, end, replacement in matches:
+        pieces.append(content[cursor:start])
+        pieces.append(f"{LOCK_OPEN}{replacement}{LOCK_CLOSE}")
+        cursor = end
+    pieces.append(content[cursor:])
+    locked_content = "".join(pieces)
 
-    final = [lookup[_normalize(s)] if m else None for s, m in zip(sentences, matched)]
-
-    if all(matched):
-        return " ".join(final)
-
-    # Group consecutive unmatched sentences into chunks so nearby sentences
-    # keep their local context when sent to the LLM together.
-    chunk_spans = []
-    i = 0
-    while i < len(sentences):
-        if matched[i]:
-            i += 1
-            continue
-        j = i
-        while j < len(sentences) and not matched[j]:
-            j += 1
-        chunk_spans.append((i, j))
-        i = j
-
-    rewritten_chunks = _humanize_chunks(
-        [" ".join(sentences[start:end]) for start, end in chunk_spans], trained
-    )
-
-    for (start, end), rewritten in zip(chunk_spans, rewritten_chunks):
-        final[start] = rewritten
-        for k in range(start + 1, end):
-            final[k] = None
-
-    return " ".join(part for part in final if part)
+    return _humanize_locked_text(locked_content, trained)

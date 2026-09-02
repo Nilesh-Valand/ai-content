@@ -27,6 +27,7 @@ export interface OverallResult {
 }
 
 export interface AnalyzeResponse {
+  id: number;
   overall: OverallResult;
   detected_patterns: DetectedPattern[];
   sentence_scores: SentenceScore[];
@@ -69,6 +70,17 @@ export async function listTrainedPhrases(): Promise<TrainedPhrase[]> {
   return res.json();
 }
 
+async function parseErrorDetail(res: Response): Promise<string> {
+  try {
+    const body = await res.json();
+    return Array.isArray(body.detail)
+      ? body.detail.map((d: { msg?: string }) => d.msg).join(", ")
+      : body.detail || "";
+  } catch {
+    return await res.text().catch(() => "");
+  }
+}
+
 export async function createTrainedPhrase(
   aiPhrase: string,
   humanizedPhrase: string
@@ -79,16 +91,25 @@ export async function createTrainedPhrase(
     body: JSON.stringify({ ai_phrase: aiPhrase, humanized_phrase: humanizedPhrase }),
   });
   if (!res.ok) {
-    let detail = "";
-    try {
-      const body = await res.json();
-      detail = Array.isArray(body.detail)
-        ? body.detail.map((d: { msg?: string }) => d.msg).join(", ")
-        : body.detail || "";
-    } catch {
-      detail = await res.text().catch(() => "");
-    }
+    const detail = await parseErrorDetail(res);
     throw new Error(`Could not save phrase (${res.status}): ${detail || res.statusText}`);
+  }
+  return res.json();
+}
+
+export async function updateTrainedPhrase(
+  id: number,
+  aiPhrase: string,
+  humanizedPhrase: string
+): Promise<TrainedPhrase> {
+  const res = await fetch(`${API_BASE}/train/phrases/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ai_phrase: aiPhrase, humanized_phrase: humanizedPhrase }),
+  });
+  if (!res.ok) {
+    const detail = await parseErrorDetail(res);
+    throw new Error(`Could not update phrase (${res.status}): ${detail || res.statusText}`);
   }
   return res.json();
 }
@@ -104,11 +125,14 @@ export interface HumanizeResponse {
   humanized_content: string;
 }
 
-export async function humanizeContent(content: string): Promise<HumanizeResponse> {
+export async function humanizeContent(
+  content: string,
+  projectId?: number
+): Promise<HumanizeResponse> {
   const res = await fetch(`${API_BASE}/humanize`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ content }),
+    body: JSON.stringify({ content, project_id: projectId ?? null }),
   });
 
   if (!res.ok) {
@@ -123,4 +147,48 @@ export async function humanizeContent(content: string): Promise<HumanizeResponse
   }
 
   return res.json();
+}
+
+export interface ProjectSummary {
+  id: number;
+  content: string;
+  ai_writing_likelihood: number;
+  confidence: Confidence;
+  has_humanized: boolean;
+  created_at: string;
+}
+
+export interface ProjectDetail {
+  id: number;
+  content: string;
+  overall: OverallResult;
+  detected_patterns: DetectedPattern[];
+  sentence_scores: SentenceScore[];
+  highlighted_phrases: string[];
+  suggestions: Suggestion[];
+  humanized_content: string | null;
+  created_at: string;
+}
+
+export async function listProjects(): Promise<ProjectSummary[]> {
+  const res = await fetch(`${API_BASE}/projects`);
+  if (!res.ok) {
+    throw new Error(`Failed to load history (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function getProject(id: number): Promise<ProjectDetail> {
+  const res = await fetch(`${API_BASE}/projects/${id}`);
+  if (!res.ok) {
+    throw new Error(`Failed to load project (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function deleteProject(id: number): Promise<void> {
+  const res = await fetch(`${API_BASE}/projects/${id}`, { method: "DELETE" });
+  if (!res.ok) {
+    throw new Error(`Could not delete project (${res.status})`);
+  }
 }
