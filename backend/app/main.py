@@ -29,19 +29,10 @@ from .suggestions import generate_suggestions
 
 app = FastAPI(title="AI Content Detection API", version="1.0.0")
 
-frontend_origins = [
-    origin.strip()
-    for origin in os.environ.get(
-        "FRONTEND_ORIGIN",
-        "http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001",
-    ).split(",")
-    if origin.strip()
-]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=frontend_origins,
-    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1):300[01]",
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )

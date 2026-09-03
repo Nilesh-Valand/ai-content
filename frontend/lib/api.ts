@@ -35,13 +35,20 @@ export interface AnalyzeResponse {
   suggestions: Suggestion[];
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
+function getApiBase(): string {
+  if (typeof window !== "undefined" && window.location?.hostname) {
+    const protocol = window.location.protocol || "http:";
+    const hostname = window.location.hostname;
+    return `${protocol}//${hostname}:8000`;
+  }
+  return process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:8000";
+}
 
 export async function analyzeContent(
   content: string,
   includeSuggestions = true
 ): Promise<AnalyzeResponse> {
-  const res = await fetch(`${API_BASE}/analyze`, {
+  const res = await fetch(`${getApiBase()}/analyze`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ content, include_suggestions: includeSuggestions }),
@@ -64,7 +71,7 @@ export interface Profile {
 }
 
 export async function listProfiles(): Promise<Profile[]> {
-  const res = await fetch(`${API_BASE}/profiles`);
+  const res = await fetch(`${getApiBase()}/profiles`);
   if (!res.ok) {
     throw new Error(`Failed to load profiles (${res.status})`);
   }
@@ -72,7 +79,7 @@ export async function listProfiles(): Promise<Profile[]> {
 }
 
 export async function createProfile(name: string, description = ""): Promise<Profile> {
-  const res = await fetch(`${API_BASE}/profiles`, {
+  const res = await fetch(`${getApiBase()}/profiles`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name, description }),
@@ -85,7 +92,7 @@ export async function createProfile(name: string, description = ""): Promise<Pro
 }
 
 export async function updateProfile(id: number, name: string, description = ""): Promise<Profile> {
-  const res = await fetch(`${API_BASE}/profiles/${id}`, {
+  const res = await fetch(`${getApiBase()}/profiles/${id}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name, description }),
@@ -98,7 +105,7 @@ export async function updateProfile(id: number, name: string, description = ""):
 }
 
 export async function deleteProfile(id: number): Promise<void> {
-  const res = await fetch(`${API_BASE}/profiles/${id}`, { method: "DELETE" });
+  const res = await fetch(`${getApiBase()}/profiles/${id}`, { method: "DELETE" });
   if (!res.ok) {
     const detail = await parseErrorDetail(res);
     throw new Error(`Could not delete profile (${res.status}): ${detail || res.statusText}`);
@@ -114,7 +121,7 @@ export interface TrainedPhrase {
 }
 
 export async function listTrainedPhrases(profileId?: number): Promise<TrainedPhrase[]> {
-  const url = profileId !== undefined ? `${API_BASE}/train/phrases?profile_id=${profileId}` : `${API_BASE}/train/phrases`;
+  const url = profileId !== undefined ? `${getApiBase()}/train/phrases?profile_id=${profileId}` : `${getApiBase()}/train/phrases`;
   const res = await fetch(url);
   if (!res.ok) {
     throw new Error(`Failed to load trained phrases (${res.status})`);
@@ -138,7 +145,7 @@ export async function createTrainedPhrase(
   humanizedPhrase: string,
   profileId?: number
 ): Promise<TrainedPhrase> {
-  const res = await fetch(`${API_BASE}/train/phrases`, {
+  const res = await fetch(`${getApiBase()}/train/phrases`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -160,7 +167,7 @@ export async function updateTrainedPhrase(
   humanizedPhrase: string,
   profileId?: number
 ): Promise<TrainedPhrase> {
-  const res = await fetch(`${API_BASE}/train/phrases/${id}`, {
+  const res = await fetch(`${getApiBase()}/train/phrases/${id}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -177,7 +184,7 @@ export async function updateTrainedPhrase(
 }
 
 export async function deleteTrainedPhrase(id: number): Promise<void> {
-  const res = await fetch(`${API_BASE}/train/phrases/${id}`, { method: "DELETE" });
+  const res = await fetch(`${getApiBase()}/train/phrases/${id}`, { method: "DELETE" });
   if (!res.ok) {
     throw new Error(`Could not delete phrase (${res.status})`);
   }
@@ -192,7 +199,7 @@ export async function humanizeContent(
   projectId?: number,
   profileId?: number
 ): Promise<HumanizeResponse> {
-  const res = await fetch(`${API_BASE}/humanize`, {
+  const res = await fetch(`${getApiBase()}/humanize`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -238,7 +245,7 @@ export interface ProjectDetail {
 }
 
 export async function listProjects(): Promise<ProjectSummary[]> {
-  const res = await fetch(`${API_BASE}/projects`);
+  const res = await fetch(`${getApiBase()}/projects`);
   if (!res.ok) {
     throw new Error(`Failed to load history (${res.status})`);
   }
@@ -246,7 +253,7 @@ export async function listProjects(): Promise<ProjectSummary[]> {
 }
 
 export async function getProject(id: number): Promise<ProjectDetail> {
-  const res = await fetch(`${API_BASE}/projects/${id}`);
+  const res = await fetch(`${getApiBase()}/projects/${id}`);
   if (!res.ok) {
     throw new Error(`Failed to load project (${res.status})`);
   }
@@ -254,7 +261,7 @@ export async function getProject(id: number): Promise<ProjectDetail> {
 }
 
 export async function deleteProject(id: number): Promise<void> {
-  const res = await fetch(`${API_BASE}/projects/${id}`, { method: "DELETE" });
+  const res = await fetch(`${getApiBase()}/projects/${id}`, { method: "DELETE" });
   if (!res.ok) {
     throw new Error(`Could not delete project (${res.status})`);
   }
