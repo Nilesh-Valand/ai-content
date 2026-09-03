@@ -53,9 +53,48 @@ class AnalyzeResponse(BaseModel):
     suggestions: List[Suggestion]
 
 
+class Profile(BaseModel):
+    id: int
+    name: str
+    description: str = ""
+    phrase_count: int = 0
+    created_at: str
+
+
+class ProfileCreate(BaseModel):
+    name: str = Field(..., max_length=100)
+    description: Optional[str] = Field("", max_length=500)
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def validate_name(cls, value):
+        if value is None:
+            raise ValueError("profile name is required")
+        value = str(value).strip()
+        if not value:
+            raise ValueError("profile name must not be empty")
+        return value
+
+
+class ProfileUpdate(BaseModel):
+    name: str = Field(..., max_length=100)
+    description: Optional[str] = Field("", max_length=500)
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def validate_name(cls, value):
+        if value is None:
+            raise ValueError("profile name is required")
+        value = str(value).strip()
+        if not value:
+            raise ValueError("profile name must not be empty")
+        return value
+
+
 class HumanizeRequest(BaseModel):
     content: str = Field(..., max_length=20000)
     project_id: Optional[int] = None
+    profile_id: Optional[int] = None
 
     @field_validator("content", mode="before")
     @classmethod
@@ -77,6 +116,7 @@ class HumanizeResponse(BaseModel):
 class TrainedPhraseCreate(BaseModel):
     ai_phrase: str = Field(..., max_length=2000)
     humanized_phrase: str = Field(..., max_length=2000)
+    profile_id: Optional[int] = None
 
     @field_validator("ai_phrase", "humanized_phrase", mode="before")
     @classmethod
@@ -94,6 +134,7 @@ class TrainedPhraseCreate(BaseModel):
 class TrainedPhraseUpdate(BaseModel):
     ai_phrase: str = Field(..., max_length=2000)
     humanized_phrase: str = Field(..., max_length=2000)
+    profile_id: Optional[int] = None
 
     @field_validator("ai_phrase", "humanized_phrase", mode="before")
     @classmethod
@@ -112,6 +153,7 @@ class TrainedPhrase(BaseModel):
     id: int
     ai_phrase: str
     humanized_phrase: str
+    profile_id: Optional[int] = None
     created_at: str
 
 

@@ -1,5 +1,5 @@
 import os
-from typing import List
+from typing import List, Optional
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
@@ -16,6 +16,9 @@ from .models import (
     HumanizeRequest,
     HumanizeResponse,
     OverallResult,
+    Profile,
+    ProfileCreate,
+    ProfileUpdate,
     ProjectDetail,
     ProjectSummary,
     TrainedPhrase,
@@ -47,6 +50,41 @@ app.add_middleware(
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+# --- Profile Endpoints ---
+
+@app.get("/profiles", response_model=List[Profile])
+def get_profiles():
+    return [Profile(**row) for row in db.list_profiles()]
+
+
+@app.post("/profiles", response_model=Profile)
+def create_profile(payload: ProfileCreate):
+    try:
+        row = db.create_profile(payload.name, payload.description or "")
+        return Profile(**row)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not create profile: {str(e)}")
+
+
+@app.put("/profiles/{profile_id}", response_model=Profile)
+def update_profile(profile_id: int, payload: ProfileUpdate):
+    row = db.update_profile(profile_id, payload.name, payload.description or "")
+    if row is None:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    return Profile(**row)
+
+
+@app.delete("/profiles/{profile_id}")
+def delete_profile(profile_id: int):
+    try:
+        deleted = db.delete_profile(profile_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Profile not found")
+        return {"status": "deleted", "id": profile_id}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @app.post("/analyze", response_model=AnalyzeResponse)
@@ -93,7 +131,7 @@ def analyze(payload: AnalyzeRequest):
 @app.post("/humanize", response_model=HumanizeResponse)
 def humanize(payload: HumanizeRequest):
     try:
-        humanized = humanize_content(payload.content)
+        humanized = humanize_content(payload.content, profile_id=payload.profile_id)
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:
@@ -114,18 +152,18 @@ def humanize(payload: HumanizeRequest):
 
 @app.post("/train/phrases", response_model=TrainedPhrase)
 def create_phrase(payload: TrainedPhraseCreate):
-    row = db.create_trained_phrase(payload.ai_phrase, payload.humanized_phrase)
+    row = db.create_trained_phrase(payload.ai_phrase, payload.humanized_phrase, payload.profile_id)
     return TrainedPhrase(**row)
 
 
 @app.get("/train/phrases", response_model=List[TrainedPhrase])
-def get_phrases():
-    return [TrainedPhrase(**row) for row in db.list_trained_phrases()]
+def get_phrases(profile_id: Optional[int] = None):
+    return [TrainedPhrase(**row) for row in db.list_trained_phrases(profile_id=profile_id)]
 
 
 @app.put("/train/phrases/{phrase_id}", response_model=TrainedPhrase)
 def update_phrase(phrase_id: int, payload: TrainedPhraseUpdate):
-    row = db.update_trained_phrase(phrase_id, payload.ai_phrase, payload.humanized_phrase)
+    row = db.update_trained_phrase(phrase_id, payload.ai_phrase, payload.humanized_phrase, payload.profile_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Phrase not found")
     return TrainedPhrase(**row)

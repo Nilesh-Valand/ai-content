@@ -55,15 +55,67 @@ export async function analyzeContent(
   return res.json();
 }
 
+export interface Profile {
+  id: number;
+  name: string;
+  description: string;
+  phrase_count: number;
+  created_at: string;
+}
+
+export async function listProfiles(): Promise<Profile[]> {
+  const res = await fetch(`${API_BASE}/profiles`);
+  if (!res.ok) {
+    throw new Error(`Failed to load profiles (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function createProfile(name: string, description = ""): Promise<Profile> {
+  const res = await fetch(`${API_BASE}/profiles`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, description }),
+  });
+  if (!res.ok) {
+    const detail = await parseErrorDetail(res);
+    throw new Error(`Could not create profile (${res.status}): ${detail || res.statusText}`);
+  }
+  return res.json();
+}
+
+export async function updateProfile(id: number, name: string, description = ""): Promise<Profile> {
+  const res = await fetch(`${API_BASE}/profiles/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, description }),
+  });
+  if (!res.ok) {
+    const detail = await parseErrorDetail(res);
+    throw new Error(`Could not update profile (${res.status}): ${detail || res.statusText}`);
+  }
+  return res.json();
+}
+
+export async function deleteProfile(id: number): Promise<void> {
+  const res = await fetch(`${API_BASE}/profiles/${id}`, { method: "DELETE" });
+  if (!res.ok) {
+    const detail = await parseErrorDetail(res);
+    throw new Error(`Could not delete profile (${res.status}): ${detail || res.statusText}`);
+  }
+}
+
 export interface TrainedPhrase {
   id: number;
   ai_phrase: string;
   humanized_phrase: string;
+  profile_id?: number;
   created_at: string;
 }
 
-export async function listTrainedPhrases(): Promise<TrainedPhrase[]> {
-  const res = await fetch(`${API_BASE}/train/phrases`);
+export async function listTrainedPhrases(profileId?: number): Promise<TrainedPhrase[]> {
+  const url = profileId !== undefined ? `${API_BASE}/train/phrases?profile_id=${profileId}` : `${API_BASE}/train/phrases`;
+  const res = await fetch(url);
   if (!res.ok) {
     throw new Error(`Failed to load trained phrases (${res.status})`);
   }
@@ -83,12 +135,17 @@ async function parseErrorDetail(res: Response): Promise<string> {
 
 export async function createTrainedPhrase(
   aiPhrase: string,
-  humanizedPhrase: string
+  humanizedPhrase: string,
+  profileId?: number
 ): Promise<TrainedPhrase> {
   const res = await fetch(`${API_BASE}/train/phrases`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ai_phrase: aiPhrase, humanized_phrase: humanizedPhrase }),
+    body: JSON.stringify({
+      ai_phrase: aiPhrase,
+      humanized_phrase: humanizedPhrase,
+      profile_id: profileId ?? null,
+    }),
   });
   if (!res.ok) {
     const detail = await parseErrorDetail(res);
@@ -100,12 +157,17 @@ export async function createTrainedPhrase(
 export async function updateTrainedPhrase(
   id: number,
   aiPhrase: string,
-  humanizedPhrase: string
+  humanizedPhrase: string,
+  profileId?: number
 ): Promise<TrainedPhrase> {
   const res = await fetch(`${API_BASE}/train/phrases/${id}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ai_phrase: aiPhrase, humanized_phrase: humanizedPhrase }),
+    body: JSON.stringify({
+      ai_phrase: aiPhrase,
+      humanized_phrase: humanizedPhrase,
+      profile_id: profileId ?? null,
+    }),
   });
   if (!res.ok) {
     const detail = await parseErrorDetail(res);
@@ -127,12 +189,17 @@ export interface HumanizeResponse {
 
 export async function humanizeContent(
   content: string,
-  projectId?: number
+  projectId?: number,
+  profileId?: number
 ): Promise<HumanizeResponse> {
   const res = await fetch(`${API_BASE}/humanize`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ content, project_id: projectId ?? null }),
+    body: JSON.stringify({
+      content,
+      project_id: projectId ?? null,
+      profile_id: profileId ?? null,
+    }),
   });
 
   if (!res.ok) {

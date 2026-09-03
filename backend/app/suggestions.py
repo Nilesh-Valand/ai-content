@@ -88,7 +88,6 @@ def generate_suggestions(
             model=model,
             temperature=0.4,
             max_tokens=1500,
-            reasoning_effort="low",
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": build_user_prompt(payload)},

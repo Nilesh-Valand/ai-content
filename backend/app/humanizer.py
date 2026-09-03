@@ -3,90 +3,50 @@ LLM-powered content humanization via Groq.
 
 Takes the user's original text and rewrites it to read more naturally —
 varied sentence rhythm, concrete detail, less templated phrasing — without
-changing its meaning. This is a separate concern from scoring/suggestions:
-it doesn't touch the detector's rule-based signals at all.
+changing its meaning.
 
-User-trained phrase pairs (see db.py) are applied two ways:
-  1. Exact match: any substring of the content that's an exact (whitespace/
-     case/trailing-punctuation-insensitive) match for a trained AI phrase —
-     whether it's a whole sentence, a clause, or just a few words — is
-     swapped in verbatim for its trained humanized version. Matches are
-     protected with sentinel markers so the LLM copies them through
-     unchanged instead of rewriting them.
-  2. Style guidance: all trained pairs are shown to the LLM as few-shot
-     examples so it leans toward the user's preferred tone even for
-     phrases it hasn't seen before.
+User-trained phrase pairs (see db.py) serve as personal writing style guidelines
+and few-shot examples for the LLM. Rather than performing rigid exact string substitution,
+the LLM intelligently analyzes these phrase pairs to learn the user's tone,
+vocabulary preferences, and phrasing style, adapting the content contextually
+to match their authentic voice.
 """
 import os
-import re
-from typing import List, Tuple
+from typing import List, Optional
 
 from .db import list_trained_phrases
 from .suggestions import DEFAULT_MODEL, get_client
 
-BASE_GUIDELINES = """You are an expert human editor. Rewrite the given text so it reads as \
-naturally human-written, while preserving its original meaning, facts, tone, and \
-approximate length.
+BASE_GUIDELINES = """You are an expert human editor and personalized writing assistant. Rewrite the given text so it reads as naturally human-written while matching the user's personal writing voice and preserving the original meaning, facts, tone, and approximate length.
 
 Guidelines:
 - Vary sentence length and structure; avoid repetitive templated patterns.
-- Prefer concrete, specific phrasing over generic filler.
-- Keep the same point of view, register (formal/casual), and intent as the original.
+- Prefer concrete, natural, and expressive phrasing over generic AI filler words.
+- Keep the same point of view, register, and intent as the original.
 - Do not add new facts, claims, or details that were not implied by the original.
-- Do not add commentary, notes, or explanations about the rewrite."""
+- Do not add commentary, notes, or explanations about the rewrite.
+- Do NOT perform rigid, literal string substitution. Apply style preferences flexibly and intelligently according to surrounding context."""
 
-MAX_FEWSHOT_EXAMPLES = 12
-LOCK_OPEN = "%%%LOCK%%%"
-LOCK_CLOSE = "%%%ENDLOCK%%%"
-
-
-def _normalize(text: str) -> str:
-    collapsed = " ".join(text.strip().split())
-    return collapsed.rstrip(" .!?,;:").lower()
+MAX_FEWSHOT_EXAMPLES = 20
 
 
-def _phrase_regex_part(phrase: str) -> str:
-    tokens = phrase.strip().split()
-    return r"\s+".join(re.escape(t) for t in tokens)
-
-
-def _find_exact_matches(content: str, trained: List[dict]) -> List[Tuple[int, int, str]]:
-    """Locate non-overlapping occurrences of trained AI phrases anywhere in the
-    content — not just whole sentences. Longer phrases win when matches overlap."""
-    ordered = sorted(trained, key=lambda t: len(t["ai_phrase"]), reverse=True)
-    lookup = {_normalize(t["ai_phrase"]): t["humanized_phrase"].strip() for t in ordered}
-    pattern = re.compile(
-        "(?:" + "|".join(_phrase_regex_part(t["ai_phrase"]) for t in ordered) + ")",
-        re.IGNORECASE,
-    )
-
-    matches: List[Tuple[int, int, str]] = []
-    occupied_end = -1
-    for m in pattern.finditer(content):
-        if m.start() < occupied_end:
-            continue
-        replacement = lookup.get(_normalize(m.group(0)))
-        if replacement is None:
-            continue
-        matches.append((m.start(), m.end(), replacement))
-        occupied_end = m.end()
-    return matches
-
-
-def _fewshot_block(trained: List[dict]) -> str:
+def _style_guidelines_block(trained: List[dict]) -> str:
     if not trained:
         return ""
     examples = trained[:MAX_FEWSHOT_EXAMPLES]
     lines = [
-        "\nHere are example pairs showing the exact tone and phrasing style this "
-        "user prefers. Lean toward this style wherever it applies:"
+        "\n--- USER WRITING STYLE & TRAINED PHRASE GUIDELINES ---",
+        "The user has provided the following examples of how they prefer AI-sounding phrases to be rewritten into their personal voice.",
+        "Use these examples to infer the user's preferred vocabulary, tone, style, and sentence structure. Adapt the input text dynamically using these style cues:\n",
     ]
-    for t in examples:
+    for idx, t in enumerate(examples, start=1):
         lines.append(
-            f'- AI-sounding: "{t["ai_phrase"].strip()}"\n'
-            f'  Preferred human rewrite: "{t["humanized_phrase"].strip()}"'
+            f'Example {idx}:\n'
+            f'  AI-sounding phrase: "{t["ai_phrase"].strip()}"\n'
+            f'  User\'s preferred style: "{t["humanized_phrase"].strip()}"'
         )
-    return "\n".join(lines)
+    lines.append("--- END OF STYLE GUIDELINES ---")
+    return "\n" + "\n".join(lines)
 
 
 def _call_groq(system_prompt: str, user_content: str) -> str:
@@ -98,7 +58,6 @@ def _call_groq(system_prompt: str, user_content: str) -> str:
         model=model,
         temperature=0.7,
         max_tokens=max_tokens,
-        reasoning_effort="low",
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_content},
@@ -107,59 +66,16 @@ def _call_groq(system_prompt: str, user_content: str) -> str:
     return completion.choices[0].message.content.strip()
 
 
-def _humanize_whole_text(content: str, trained: List[dict]) -> str:
+def humanize_content(content: str, profile_id: Optional[int] = None) -> str:
+    trained = list_trained_phrases(profile_id=profile_id)
+    if not trained and profile_id is not None:
+        # Fallback to all trained phrases if profile has no phrases defined
+        trained = list_trained_phrases()
+
     system_prompt = (
         BASE_GUIDELINES
-        + _fewshot_block(trained)
-        + '\n\nReturn ONLY the rewritten text, nothing else. No preamble, no '
-          "markdown headers, no quotation marks wrapping the whole output."
+        + _style_guidelines_block(trained)
+        + '\n\nReturn ONLY the rewritten text, nothing else. No preamble, no markdown headers, no quotation marks wrapping the whole output.'
     )
     return _call_groq(system_prompt, content)
 
-
-def _humanize_locked_text(locked_content: str, trained: List[dict]) -> str:
-    system_prompt = (
-        BASE_GUIDELINES
-        + _fewshot_block(trained)
-        + f"\n\nCRITICAL RULE — HIGHEST PRIORITY: The text contains segments wrapped "
-          f"like this: {LOCK_OPEN}some text{LOCK_CLOSE}. You MUST copy the text inside "
-          f"every {LOCK_OPEN}...{LOCK_CLOSE} pair character-for-character, with zero "
-          f"changes — same words, same punctuation, same capitalization. Do NOT "
-          f"paraphrase, smooth, merge, or adjust it in any way, even if it makes the "
-          f"surrounding sentence read slightly awkwardly. Remove only the {LOCK_OPEN} "
-          f"and {LOCK_CLOSE} marker tokens themselves from your output; keep the text "
-          f"between them untouched. This rule overrides every other guideline above "
-          f"when they conflict. Rewrite ONLY the text outside the markers, following "
-          f"the guidelines above."
-          "\n\nReturn ONLY the rewritten text, nothing else. No preamble, no "
-          "markdown headers, no quotation marks wrapping the whole output."
-    )
-    rewritten = _call_groq(system_prompt, locked_content)
-    # Safety net in case the model echoes a marker back despite instructions.
-    return rewritten.replace(LOCK_OPEN, "").replace(LOCK_CLOSE, "")
-
-
-def humanize_content(content: str) -> str:
-    trained = list_trained_phrases()
-
-    if not trained:
-        return _humanize_whole_text(content, trained)
-
-    matches = _find_exact_matches(content, trained)
-    if not matches:
-        return _humanize_whole_text(content, trained)
-
-    # Fast path: the entire content is itself exactly one trained phrase.
-    if len(matches) == 1 and matches[0][0] == 0 and matches[0][1] >= len(content.rstrip()):
-        return matches[0][2]
-
-    pieces = []
-    cursor = 0
-    for start, end, replacement in matches:
-        pieces.append(content[cursor:start])
-        pieces.append(f"{LOCK_OPEN}{replacement}{LOCK_CLOSE}")
-        cursor = end
-    pieces.append(content[cursor:])
-    locked_content = "".join(pieces)
-
-    return _humanize_locked_text(locked_content, trained)
