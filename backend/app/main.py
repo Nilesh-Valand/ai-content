@@ -122,7 +122,11 @@ def analyze(payload: AnalyzeRequest):
 @app.post("/humanize", response_model=HumanizeResponse)
 def humanize(payload: HumanizeRequest):
     try:
-        humanized = humanize_content(payload.content, profile_id=payload.profile_id)
+        humanized = humanize_content(
+            payload.content,
+            profile_id=payload.profile_id,
+            phrase_ids=payload.phrase_ids,
+        )
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:

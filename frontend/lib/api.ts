@@ -197,7 +197,8 @@ export interface HumanizeResponse {
 export async function humanizeContent(
   content: string,
   projectId?: number,
-  profileId?: number
+  profileId?: number,
+  phraseIds?: number[]
 ): Promise<HumanizeResponse> {
   const res = await fetch(`${getApiBase()}/humanize`, {
     method: "POST",
@@ -206,6 +207,7 @@ export async function humanizeContent(
       content,
       project_id: projectId ?? null,
       profile_id: profileId ?? null,
+      phrase_ids: phraseIds && phraseIds.length > 0 ? phraseIds : null,
     }),
   });
 

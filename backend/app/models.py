@@ -11,8 +11,10 @@ class AnalyzeRequest(BaseModel):
     def validate_content(cls, value):
         if value is None:
             raise ValueError("content is required")
+        if not isinstance(value, str):
+            raise ValueError("content must be a string")
 
-        value = str(value).strip()
+        value = value.strip()
         if not value:
             raise ValueError("content must not be empty")
 
@@ -70,7 +72,9 @@ class ProfileCreate(BaseModel):
     def validate_name(cls, value):
         if value is None:
             raise ValueError("profile name is required")
-        value = str(value).strip()
+        if not isinstance(value, str):
+            raise ValueError("profile name must be a string")
+        value = value.strip()
         if not value:
             raise ValueError("profile name must not be empty")
         return value
@@ -85,7 +89,9 @@ class ProfileUpdate(BaseModel):
     def validate_name(cls, value):
         if value is None:
             raise ValueError("profile name is required")
-        value = str(value).strip()
+        if not isinstance(value, str):
+            raise ValueError("profile name must be a string")
+        value = value.strip()
         if not value:
             raise ValueError("profile name must not be empty")
         return value
@@ -95,14 +101,17 @@ class HumanizeRequest(BaseModel):
     content: str = Field(..., max_length=20000)
     project_id: Optional[int] = None
     profile_id: Optional[int] = None
+    phrase_ids: Optional[List[int]] = None
 
     @field_validator("content", mode="before")
     @classmethod
     def validate_content(cls, value):
         if value is None:
             raise ValueError("content is required")
+        if not isinstance(value, str):
+            raise ValueError("content must be a string")
 
-        value = str(value).strip()
+        value = value.strip()
         if not value:
             raise ValueError("content must not be empty")
 
@@ -123,8 +132,10 @@ class TrainedPhraseCreate(BaseModel):
     def validate_non_empty(cls, value):
         if value is None:
             raise ValueError("this field is required")
+        if not isinstance(value, str):
+            raise ValueError("this field must be a string")
 
-        value = str(value).strip()
+        value = value.strip()
         if not value:
             raise ValueError("this field must not be empty")
 
@@ -141,8 +152,10 @@ class TrainedPhraseUpdate(BaseModel):
     def validate_non_empty(cls, value):
         if value is None:
             raise ValueError("this field is required")
+        if not isinstance(value, str):
+            raise ValueError("this field must be a string")
 
-        value = str(value).strip()
+        value = value.strip()
         if not value:
             raise ValueError("this field must not be empty")
 
