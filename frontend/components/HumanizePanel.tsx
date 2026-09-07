@@ -2,7 +2,42 @@
 
 import { useEffect, useState } from "react";
 import { humanizeContent, listProfiles, Profile } from "@/lib/api";
-import { Wand2, Copy, Check, Loader2, Sparkles } from "lucide-react";
+import { Wand2, Copy, Check, Loader2, Sparkles, AlertTriangle } from "lucide-react";
+
+// navigator.clipboard requires a "secure context" (HTTPS, or the host machine's
+// own localhost) — a browser on another machine reaching this app over plain
+// HTTP via a LAN IP doesn't get it, so we fall back to the older execCommand
+// approach, which has no such restriction.
+function legacyCopy(text: string): boolean {
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  textarea.style.top = "0";
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+  let ok = false;
+  try {
+    ok = document.execCommand("copy");
+  } catch {
+    ok = false;
+  }
+  document.body.removeChild(textarea);
+  return ok;
+}
+
+async function copyToClipboard(text: string): Promise<boolean> {
+  if (navigator.clipboard && window.isSecureContext) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // fall through to legacy path
+    }
+  }
+  return legacyCopy(text);
+}
 
 export default function HumanizePanel({
   content,
@@ -19,6 +54,7 @@ export default function HumanizePanel({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
 
   useEffect(() => {
     listProfiles()
@@ -49,12 +85,15 @@ export default function HumanizePanel({
 
   async function handleCopy() {
     if (!humanized) return;
-    try {
-      await navigator.clipboard.writeText(humanized);
+    const ok = await copyToClipboard(humanized);
+    if (ok) {
+      setCopyFailed(false);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
-    } catch {
-      // clipboard unavailable — ignore
+    } else {
+      setCopied(false);
+      setCopyFailed(true);
+      setTimeout(() => setCopyFailed(false), 2500);
     }
   }
 
@@ -119,7 +158,13 @@ export default function HumanizePanel({
           <p className="text-[15px] leading-relaxed whitespace-pre-wrap text-ink">
             {humanized}
           </p>
-          <div className="flex justify-end mt-3">
+          <div className="flex items-center justify-end gap-2 mt-3">
+            {copyFailed && (
+              <span className="flex items-center gap-1 text-xs text-danger-600">
+                <AlertTriangle className="h-3.5 w-3.5" />
+                Couldn&rsquo;t copy — select the text and copy manually
+              </span>
+            )}
             <button
               onClick={handleCopy}
               className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1.5 text-xs font-medium text-ink-muted hover:text-ink hover:border-border-strong transition-colors"

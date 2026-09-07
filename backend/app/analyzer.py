@@ -34,15 +34,29 @@ def get_nlp():
 
 # Signal weights — must sum to 1.0. Tune these based on observed accuracy.
 WEIGHTS = {
-    "ai_vocab": 0.18,
-    "predictability": 0.12,
-    "repetition": 0.12,
-    "diversity": 0.13,
-    "generic_promo": 0.13,
-    "rule_of_three": 0.08,
-    "sentence_variation": 0.09,
-    "specificity": 0.15,
+    "ai_vocab": 0.16,
+    "predictability": 0.11,
+    "repetition": 0.11,
+    "diversity": 0.12,
+    "generic_promo": 0.12,
+    "rule_of_three": 0.06,
+    "sentence_variation": 0.08,
+    "specificity": 0.14,
+    "negative_parallelism": 0.06,
+    "em_dash_overuse": 0.04,
 }
+
+# "Not just X, but Y" / "it's not X, it's Y" — a well-documented LLM tic
+# (Wikipedia calls it "negative parallelism"), rare enough in genuine human
+# prose that even one occurrence in a short passage is meaningful.
+NEGATIVE_PARALLELISM_PATTERNS = [
+    re.compile(r"\bnot (?:just|only)\b[^.?!]{0,80}?\bbut\b", re.IGNORECASE),
+    re.compile(
+        r"\b(?:isn'?t|is not|it'?s not|wasn'?t|was not)\s+(?:just|only\s+)?"
+        r"[^.?!—,;]{0,60}[,—;-]\s*(?:it'?s|it is|this is|that'?s|that is)\b",
+        re.IGNORECASE,
+    ),
+]
 
 
 def _find_phrase_hits(text_lower: str, phrases: List[str]) -> List[str]:
@@ -155,6 +169,35 @@ def score_predictability(sentences: List[str]):
     return round(score, 3), list(set(crutch_hits))
 
 
+def score_negative_parallelism(text: str):
+    """Detects "not just X, but Y" / "it's not X, it's Y" style constructions."""
+    matches = []
+    for pattern in NEGATIVE_PARALLELISM_PATTERNS:
+        matches.extend(m.group(0).strip() for m in pattern.finditer(text))
+    # even a single occurrence in a short passage is a meaningful signal
+    score = min(len(matches) * 0.6, 1.0)
+    return round(score, 3), matches
+
+
+def score_em_dash_overuse(text: str, sentence_count: int):
+    """Overuse of em dashes ('—') is one of the most cited ChatGPT-era tells."""
+    positions = [m.start() for m in re.finditer(r"—", text)]
+    dash_count = len(positions)
+    if dash_count < 2:
+        return 0.0, dash_count, []
+
+    density = dash_count / max(sentence_count, 1)
+    score = min(density / 0.5, 1.0)  # ~1 em dash per 2 sentences -> max score
+
+    snippets = []
+    for pos in positions[:4]:
+        start = max(0, pos - 20)
+        end = min(len(text), pos + 21)
+        snippets.append("…" + text[start:end].strip() + "…")
+
+    return round(score, 3), dash_count, snippets
+
+
 def score_specificity(doc, sentences: List[str]):
     """Lower presence of numbers/named entities/proper nouns -> higher AI likelihood."""
     if not sentences:
@@ -193,6 +236,8 @@ def analyze_text(text: str):
     variation_score = score_sentence_variation(sentences)
     predictability_score, predictability_hits = score_predictability(sentences)
     specificity_score = score_specificity(doc, sentences)
+    neg_parallel_score, neg_parallel_hits = score_negative_parallelism(text)
+    em_dash_score, em_dash_count, em_dash_snippets = score_em_dash_overuse(text, len(sentences))
 
     signals = {
         "ai_vocab": ai_vocab_score,
@@ -203,6 +248,8 @@ def analyze_text(text: str):
         "rule_of_three": rule3_score,
         "sentence_variation": variation_score,
         "specificity": specificity_score,
+        "negative_parallelism": neg_parallel_score,
+        "em_dash_overuse": em_dash_score,
     }
 
     overall_raw = sum(signals[k] * WEIGHTS[k] for k in WEIGHTS)
@@ -268,6 +315,18 @@ def analyze_text(text: str):
             score=round(specificity_score, 3),
             examples=[],
         ),
+        DetectedPattern(
+            pattern='Negative parallelism ("not just X, but Y")',
+            severity=severity_from_score(neg_parallel_score),
+            score=round(neg_parallel_score, 3),
+            examples=neg_parallel_hits[:4],
+        ),
+        DetectedPattern(
+            pattern="Em dash overuse",
+            severity=severity_from_score(em_dash_score),
+            score=round(em_dash_score, 3),
+            examples=em_dash_snippets,
+        ),
     ]
 
     # Sentence-level scoring using a lighter-weight blend of applicable signals
@@ -286,17 +345,19 @@ def analyze_text(text: str):
         s_concrete = len(sent_doc.ents) + len(re.findall(r"\b\d+([.,]\d+)?%?\b", sent)) + \
             sum(1 for tok in sent_doc if tok.pos_ == "PROPN")
         s_specificity = 1.0 - min(s_concrete / 1.0, 1.0)
+        s_neg_parallel = any(p.search(sent) for p in NEGATIVE_PARALLELISM_PATTERNS)
 
         blended = (
-            0.40 * s_vocab_density +
-            0.30 * s_generic_density +
-            0.30 * s_specificity
+            0.35 * s_vocab_density +
+            0.25 * s_generic_density +
+            0.25 * s_specificity +
+            (0.15 if s_neg_parallel else 0.0)
         )
         sentence_scores.append(
             SentenceScore(index=i + 1, text=sent, ai_likelihood=round(blended * 100, 1))
         )
 
-    highlighted_phrases = list(set(ai_vocab_hits + generic_hits + rule3_examples))
+    highlighted_phrases = list(set(ai_vocab_hits + generic_hits + rule3_examples + neg_parallel_hits))
 
     return {
         "overall_pct": overall_pct,
