@@ -23,12 +23,18 @@ Three things steer that beyond the raw content itself:
      grammar errors, meaning drift, profile-contradicting tone) without
      rewriting wholesale — and fails safe to the original rewrite if
      anything about that pass goes wrong.
+  4. A final deterministic rule-based scrub (rule_scrubber.py) that removes
+     whichever of the detector's own flaggable surface patterns survived —
+     AI vocabulary, sentence-opener crutches, em dash overuse — since this
+     app owns the detector too and can target its exact signals directly
+     instead of hoping the LLM avoided them all.
 """
 import os
 import re
 from typing import List, Optional
 
 from .db import get_profile, list_trained_phrases
+from .rule_scrubber import scrub_ai_signals
 from .suggestions import DEFAULT_MODEL, get_client
 
 BASE_GUIDELINES = """You are an expert human editor and personalized writing assistant. Rewrite the given text so it reads as naturally human-written while matching the user's personal writing voice and preserving the original meaning, facts, tone, and approximate length.
@@ -173,6 +179,11 @@ def _call_groq(system_prompt: str, user_content: str, temperature: float = 0.7) 
         model=model,
         temperature=temperature,
         max_tokens=max_tokens,
+        # gpt-oss models spend an unpredictable chunk of the token budget on
+        # hidden reasoning before emitting visible content; without capping
+        # that effort, a short max_tokens budget can get eaten entirely by
+        # reasoning and truncate the actual output mid-sentence.
+        reasoning_effort="low",
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_content},
@@ -225,4 +236,5 @@ def humanize_content(
         + '\n\nReturn ONLY the rewritten text, nothing else. No preamble, no markdown headers, no quotation marks wrapping the whole output.'
     )
     rewrite = _call_groq(system_prompt, content)
-    return _quality_check_pass(content, rewrite, profile)
+    checked = _quality_check_pass(content, rewrite, profile)
+    return scrub_ai_signals(checked)
