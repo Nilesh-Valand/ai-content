@@ -13,6 +13,7 @@ import {
   updateTrainedPhrase,
   deleteTrainedPhrase,
 } from "@/lib/api";
+import { useUser } from "@/contexts/UserContext";
 import Modal from "@/components/Modal";
 import {
   GraduationCap,
@@ -55,9 +56,13 @@ export default function TrainPage() {
   const [confirmingDeleteProfileId, setConfirmingDeleteProfileId] = useState<number | null>(null);
   const [deletingProfileId, setDeletingProfileId] = useState<number | null>(null);
 
+  const { activeUserId } = useUser();
+
   useEffect(() => {
+    if (activeUserId === undefined) return;
     loadInitialProfiles();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeUserId]);
 
   useEffect(() => {
     if (activeProfileId !== null) {
@@ -69,11 +74,9 @@ export default function TrainPage() {
     setLoadingProfiles(true);
     setError(null);
     try {
-      const res = await listProfiles();
+      const res = await listProfiles(activeUserId);
       setProfiles(res);
-      if (res.length > 0) {
-        setActiveProfileId(res[0].id);
-      }
+      setActiveProfileId(res[0]?.id ?? null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load phrase profiles.");
     } finally {
@@ -101,7 +104,7 @@ export default function TrainPage() {
       const updated = await updateProfile(profileModal.profile.id, name, description);
       setProfiles((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
     } else {
-      const created = await createProfile(name, description);
+      const created = await createProfile(name, description, activeUserId);
       setProfiles((prev) => [...prev, created]);
       setActiveProfileId(created.id);
     }

@@ -2,9 +2,32 @@ from typing import List, Optional, Literal
 from pydantic import BaseModel, Field, field_validator
 
 
+class User(BaseModel):
+    id: int
+    name: str
+    created_at: str
+
+
+class UserCreate(BaseModel):
+    name: str = Field(..., max_length=100)
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def validate_name(cls, value):
+        if value is None:
+            raise ValueError("user name is required")
+        if not isinstance(value, str):
+            raise ValueError("user name must be a string")
+        value = value.strip()
+        if not value:
+            raise ValueError("user name must not be empty")
+        return value
+
+
 class AnalyzeRequest(BaseModel):
     content: str = Field(..., max_length=20000)
     include_suggestions: bool = True
+    user_id: Optional[int] = None
 
     @field_validator("content", mode="before")
     @classmethod
@@ -66,6 +89,7 @@ class Profile(BaseModel):
 class ProfileCreate(BaseModel):
     name: str = Field(..., max_length=100)
     description: Optional[str] = Field("", max_length=500)
+    user_id: Optional[int] = None
 
     @field_validator("name", mode="before")
     @classmethod

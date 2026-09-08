@@ -24,6 +24,8 @@ from .models import (
     TrainedPhrase,
     TrainedPhraseCreate,
     TrainedPhraseUpdate,
+    User,
+    UserCreate,
 )
 from .suggestions import generate_suggestions
 
@@ -43,17 +45,47 @@ def health():
     return {"status": "ok"}
 
 
+# --- User Endpoints ---
+# No login/auth — a "user" is just a named bucket the frontend switches
+# between (picked from a dropdown, remembered in the browser) to keep each
+# person's profiles/phrases/history separate on a shared install.
+
+@app.get("/users", response_model=List[User])
+def get_users():
+    return [User(**row) for row in db.list_users()]
+
+
+@app.post("/users", response_model=User)
+def create_user(payload: UserCreate):
+    try:
+        row = db.create_user(payload.name)
+        return User(**row)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not create user: {str(e)}")
+
+
+@app.delete("/users/{user_id}")
+def delete_user(user_id: int):
+    try:
+        deleted = db.delete_user(user_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="User not found")
+        return {"status": "deleted", "id": user_id}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 # --- Profile Endpoints ---
 
 @app.get("/profiles", response_model=List[Profile])
-def get_profiles():
-    return [Profile(**row) for row in db.list_profiles()]
+def get_profiles(user_id: Optional[int] = None):
+    return [Profile(**row) for row in db.list_profiles(user_id=user_id)]
 
 
 @app.post("/profiles", response_model=Profile)
 def create_profile(payload: ProfileCreate):
     try:
-        row = db.create_profile(payload.name, payload.description or "")
+        row = db.create_profile(payload.name, payload.description or "", payload.user_id)
         return Profile(**row)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Could not create profile: {str(e)}")
@@ -104,6 +136,7 @@ def analyze(payload: AnalyzeRequest):
         sentence_scores=[s.model_dump() for s in result["sentence_scores"]],
         highlighted_phrases=result["highlighted_phrases"],
         suggestions=[s.model_dump() for s in suggestions],
+        user_id=payload.user_id,
     )
 
     return AnalyzeResponse(
@@ -173,7 +206,7 @@ def remove_phrase(phrase_id: int):
 
 
 @app.get("/projects", response_model=List[ProjectSummary])
-def get_projects():
+def get_projects(user_id: Optional[int] = None):
     return [
         ProjectSummary(
             id=row["id"],
@@ -183,7 +216,7 @@ def get_projects():
             has_humanized=row["humanized_content"] is not None,
             created_at=row["created_at"],
         )
-        for row in db.list_projects()
+        for row in db.list_projects(user_id=user_id)
     ]
 
 

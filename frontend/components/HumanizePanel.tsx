@@ -1,27 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { useEffect, useRef, useState } from "react";
 import { humanizeContent, listProfiles, listTrainedPhrases, Profile, TrainedPhrase } from "@/lib/api";
 import { Wand2, Copy, Check, Loader2, Sparkles, AlertTriangle, ChevronDown, Loader } from "lucide-react";
-
-// Closes an open dropdown when a click lands outside its container, or on Escape.
-function useDismiss(ref: RefObject<HTMLElement>, open: boolean, onClose: () => void) {
-  useEffect(() => {
-    if (!open) return;
-    function onPointerDown(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
-    }
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    document.addEventListener("mousedown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [open, ref, onClose]);
-}
+import { useDismiss } from "@/hooks/useDismiss";
+import { useUser } from "@/contexts/UserContext";
 
 // navigator.clipboard requires a "secure context" (HTTPS, or the host machine's
 // own localhost) — a browser on another machine reaching this app over plain
@@ -108,18 +91,21 @@ export default function HumanizePanel({
     }
   }, [profileDropdownOpen, previewProfileId, previewPhrases]);
 
+  const { activeUserId } = useUser();
+
   useEffect(() => {
-    listProfiles()
+    if (activeUserId === undefined) return;
+    listProfiles(activeUserId)
       .then((res) => {
         setProfiles(res);
-        if (res.length > 0) {
-          setSelectedProfileId(res[0].id);
-        }
+        setPhrasesByProfile({});
+        setSelectedProfileId(res[0]?.id);
+        setSelectedPhraseIds([]);
       })
       .catch(() => {
         // Degrade gracefully if profiles API unavailable
       });
-  }, []);
+  }, [activeUserId]);
 
   useEffect(() => {
     if (previewProfileId === null || phrasesByProfile[previewProfileId] !== undefined) return;

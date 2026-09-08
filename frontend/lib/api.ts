@@ -46,12 +46,17 @@ function getApiBase(): string {
 
 export async function analyzeContent(
   content: string,
-  includeSuggestions = true
+  includeSuggestions = true,
+  userId?: number
 ): Promise<AnalyzeResponse> {
   const res = await fetch(`${getApiBase()}/analyze`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ content, include_suggestions: includeSuggestions }),
+    body: JSON.stringify({
+      content,
+      include_suggestions: includeSuggestions,
+      user_id: userId ?? null,
+    }),
   });
 
   if (!res.ok) {
@@ -62,6 +67,41 @@ export async function analyzeContent(
   return res.json();
 }
 
+export interface User {
+  id: number;
+  name: string;
+  created_at: string;
+}
+
+export async function listUsers(): Promise<User[]> {
+  const res = await fetch(`${getApiBase()}/users`);
+  if (!res.ok) {
+    throw new Error(`Failed to load users (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function createUser(name: string): Promise<User> {
+  const res = await fetch(`${getApiBase()}/users`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) {
+    const detail = await parseErrorDetail(res);
+    throw new Error(`Could not create user (${res.status}): ${detail || res.statusText}`);
+  }
+  return res.json();
+}
+
+export async function deleteUser(id: number): Promise<void> {
+  const res = await fetch(`${getApiBase()}/users/${id}`, { method: "DELETE" });
+  if (!res.ok) {
+    const detail = await parseErrorDetail(res);
+    throw new Error(`Could not delete user (${res.status}): ${detail || res.statusText}`);
+  }
+}
+
 export interface Profile {
   id: number;
   name: string;
@@ -70,19 +110,20 @@ export interface Profile {
   created_at: string;
 }
 
-export async function listProfiles(): Promise<Profile[]> {
-  const res = await fetch(`${getApiBase()}/profiles`);
+export async function listProfiles(userId?: number): Promise<Profile[]> {
+  const url = userId !== undefined ? `${getApiBase()}/profiles?user_id=${userId}` : `${getApiBase()}/profiles`;
+  const res = await fetch(url);
   if (!res.ok) {
     throw new Error(`Failed to load profiles (${res.status})`);
   }
   return res.json();
 }
 
-export async function createProfile(name: string, description = ""): Promise<Profile> {
+export async function createProfile(name: string, description = "", userId?: number): Promise<Profile> {
   const res = await fetch(`${getApiBase()}/profiles`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name, description }),
+    body: JSON.stringify({ name, description, user_id: userId ?? null }),
   });
   if (!res.ok) {
     const detail = await parseErrorDetail(res);
@@ -246,8 +287,9 @@ export interface ProjectDetail {
   created_at: string;
 }
 
-export async function listProjects(): Promise<ProjectSummary[]> {
-  const res = await fetch(`${getApiBase()}/projects`);
+export async function listProjects(userId?: number): Promise<ProjectSummary[]> {
+  const url = userId !== undefined ? `${getApiBase()}/projects?user_id=${userId}` : `${getApiBase()}/projects`;
+  const res = await fetch(url);
   if (!res.ok) {
     throw new Error(`Failed to load history (${res.status})`);
   }

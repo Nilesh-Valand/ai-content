@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { analyzeContent, getProject, AnalyzeResponse } from "@/lib/api";
+import { useUser } from "@/contexts/UserContext";
 import VerdictStamp from "@/components/VerdictStamp";
 import MarkedManuscript from "@/components/MarkedManuscript";
 import PatternNotes from "@/components/PatternNotes";
@@ -21,6 +22,7 @@ function AnalyzerPage() {
   const [initialHumanized, setInitialHumanized] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { activeUserId } = useUser();
 
   useEffect(() => {
     if (!projectParam) return;
@@ -52,7 +54,7 @@ function AnalyzerPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await analyzeContent(content);
+      const res = await analyzeContent(content, true, activeUserId);
       setInitialHumanized(null);
       setResult(res);
     } catch (e) {

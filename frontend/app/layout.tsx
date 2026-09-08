@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
 import Nav from "@/components/Nav";
+import { UserProvider } from "@/contexts/UserContext";
 
 const sans = Inter({
   subsets: ["latin"],
@@ -28,8 +29,10 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${sans.variable} ${mono.variable}`}>
       <body className="font-sans bg-canvas text-ink antialiased min-h-screen">
-        <Nav />
-        {children}
+        <UserProvider>
+          <Nav />
+          {children}
+        </UserProvider>
       </body>
     </html>
   );

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ProjectSummary, listProjects, deleteProject } from "@/lib/api";
+import { useUser } from "@/contexts/UserContext";
 import {
   History,
   Loader2,
@@ -44,10 +45,14 @@ export default function HistoryPage() {
   const [bulkConfirming, setBulkConfirming] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const selectAllRef = useRef<HTMLInputElement>(null);
+  const { activeUserId } = useUser();
 
   useEffect(() => {
+    if (activeUserId === undefined) return;
+    setSelectedIds(new Set());
     refresh();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeUserId]);
 
   useEffect(() => {
     if (selectAllRef.current) {
@@ -77,7 +82,7 @@ export default function HistoryPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await listProjects();
+      const res = await listProjects(activeUserId);
       setProjects(res);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load history.");
