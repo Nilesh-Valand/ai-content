@@ -45,7 +45,9 @@ Guidelines:
 - Keep the same point of view, register, and intent as the original.
 - Do not add new facts, claims, or details that were not implied by the original.
 - Do not add commentary, notes, or explanations about the rewrite.
-- Do NOT perform rigid, literal string substitution. Apply style preferences flexibly and intelligently according to surrounding context."""
+- Do NOT perform rigid, literal string substitution. Apply style preferences flexibly and intelligently according to surrounding context.
+- Do NOT summarize, condense, or shorten the text. Rewrite it sentence by sentence and paragraph by paragraph, covering every point in the original — the rewrite must contain roughly the same number of sentences and paragraphs as the input, not a shorter recap of it.
+- A "style" or "platform" instruction (e.g. Instagram, LinkedIn) changes tone, vocabulary, and voice only — it is never a license to cut content or turn a full passage into a single short line or caption."""
 
 MIN_FEWSHOT_EXAMPLES = 3
 MAX_FEWSHOT_EXAMPLES = 8
@@ -209,6 +211,12 @@ def _quality_check_pass(original_content: str, rewrite: str, profile: Optional[d
         return rewrite
 
 
+# Below this fraction of the original word count, a rewrite is treated as an
+# accidental summary (the model condensed instead of rewrote) rather than a
+# legitimately tighter phrasing, and gets one retry with a blunter prompt.
+_MIN_LENGTH_RATIO = 0.6
+
+
 def humanize_content(
     content: str,
     profile_id: Optional[int] = None,
@@ -236,5 +244,34 @@ def humanize_content(
         + '\n\nReturn ONLY the rewritten text, nothing else. No preamble, no markdown headers, no quotation marks wrapping the whole output.'
     )
     rewrite = _call_groq(system_prompt, content)
+    rewrite = _guard_against_summarizing(system_prompt, content, rewrite)
     checked = _quality_check_pass(content, rewrite, profile)
     return scrub_ai_signals(checked)
+
+
+def _guard_against_summarizing(system_prompt: str, content: str, rewrite: str) -> str:
+    """One retry, with a blunter instruction, if the model collapsed the
+    input into a much shorter summary instead of rewriting it in full —
+    this is what happens when a platform-style profile (e.g. Instagram)
+    nudges the model toward caption-length output regardless of input size.
+    Fails safe: on any error, or if the retry is no better, keeps the
+    original rewrite rather than losing it."""
+    original_words = len(content.split())
+    rewrite_words = len(rewrite.split())
+    if original_words < 20 or rewrite_words >= original_words * _MIN_LENGTH_RATIO:
+        return rewrite
+
+    try:
+        retry_prompt = (
+            system_prompt
+            + f"\n\nYour previous attempt dropped most of the content and returned only "
+              f"{rewrite_words} words for a {original_words}-word input. That is wrong — "
+              f"do not summarize. Rewrite the ENTIRE input in full, sentence by sentence, "
+              f"matching its length and covering every point."
+        )
+        retried = _call_groq(retry_prompt, content, temperature=0.7)
+        if len(retried.split()) > rewrite_words:
+            return retried
+        return rewrite
+    except Exception:
+        return rewrite
