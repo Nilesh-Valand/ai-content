@@ -300,16 +300,11 @@ def update_profile(profile_id: int, name: str, description: str = "") -> Optiona
 
 
 def delete_profile(profile_id: int) -> bool:
+    # No "last remaining profile" guard: humanize_content() already handles
+    # profile_id=None gracefully (falls back to unscoped trained phrases, or
+    # none at all), so a user is free to end up with zero profiles and
+    # create a new one later whenever they want.
     with get_connection() as conn:
-        row = conn.execute("SELECT user_id FROM profiles WHERE id = ?", (profile_id,)).fetchone()
-        if row is None:
-            return False
-        count_row = conn.execute(
-            "SELECT COUNT(*) as cnt FROM profiles WHERE user_id = ?", (row["user_id"],)
-        ).fetchone()
-        if count_row and count_row["cnt"] <= 1:
-            raise ValueError("Cannot delete the only remaining profile")
-
         conn.execute("DELETE FROM trained_phrases WHERE profile_id = ?", (profile_id,))
         cursor = conn.execute("DELETE FROM profiles WHERE id = ?", (profile_id,))
         return cursor.rowcount > 0

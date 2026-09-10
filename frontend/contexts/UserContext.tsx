@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
-import { User, listUsers, createUser as apiCreateUser } from "@/lib/api";
+import { User, listUsers, createUser as apiCreateUser, deleteUser as apiDeleteUser } from "@/lib/api";
 
 const STORAGE_KEY = "contentiq_active_user_id";
 
@@ -12,6 +12,7 @@ interface UserContextValue {
   loading: boolean;
   setActiveUserId: (id: number) => void;
   createUser: (name: string) => Promise<User>;
+  deleteUser: (id: number) => Promise<void>;
 }
 
 const UserContext = createContext<UserContextValue | null>(null);
@@ -58,11 +59,20 @@ export function UserProvider({ children }: { children: ReactNode }) {
     return created;
   }
 
+  async function deleteUser(id: number): Promise<void> {
+    await apiDeleteUser(id);
+    const remaining = users.filter((u) => u.id !== id);
+    setUsers(remaining);
+    if (activeUserId === id) {
+      setActiveUserId(remaining[0]?.id as number);
+    }
+  }
+
   const activeUser = users.find((u) => u.id === activeUserId);
 
   return (
     <UserContext.Provider
-      value={{ users, activeUserId, activeUser, loading, setActiveUserId, createUser }}
+      value={{ users, activeUserId, activeUser, loading, setActiveUserId, createUser, deleteUser }}
     >
       {children}
     </UserContext.Provider>

@@ -101,13 +101,10 @@ def update_profile(profile_id: int, payload: ProfileUpdate):
 
 @app.delete("/profiles/{profile_id}")
 def delete_profile(profile_id: int):
-    try:
-        deleted = db.delete_profile(profile_id)
-        if not deleted:
-            raise HTTPException(status_code=404, detail="Profile not found")
-        return {"status": "deleted", "id": profile_id}
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    deleted = db.delete_profile(profile_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    return {"status": "deleted", "id": profile_id}
 
 
 @app.post("/analyze", response_model=AnalyzeResponse)

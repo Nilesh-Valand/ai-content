@@ -118,8 +118,8 @@ export default function TrainPage() {
       await deleteProfile(id);
       const updatedProfiles = profiles.filter((p) => p.id !== id);
       setProfiles(updatedProfiles);
-      if (activeProfileId === id && updatedProfiles.length > 0) {
-        setActiveProfileId(updatedProfiles[0].id);
+      if (activeProfileId === id) {
+        setActiveProfileId(updatedProfiles[0]?.id ?? null);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not delete profile.");
@@ -223,6 +223,10 @@ export default function TrainPage() {
           <div className="flex items-center gap-2 text-sm text-ink-muted py-4">
             <Loader2 className="h-4 w-4 animate-spin" /> Loading style profiles…
           </div>
+        ) : profiles.length === 0 ? (
+          <div className="mb-6 rounded-xl border border-dashed border-border px-4 py-3 text-sm text-ink-muted">
+            No style profiles yet — create one with &ldquo;New Profile&rdquo; to start training phrases.
+          </div>
         ) : (
           <div className="mb-6 overflow-x-auto pb-2">
             <div className="flex items-center gap-2 border-b border-border pb-3">
@@ -261,37 +265,35 @@ export default function TrainPage() {
                         >
                           <Pencil className="h-3 w-3" />
                         </button>
-                        {profiles.length > 1 && (
-                          confirmingDeleteProfileId === p.id ? (
-                            <div className="flex items-center gap-1">
-                              <button
-                                onClick={() => handleDeleteProfile(p.id)}
-                                disabled={deletingProfileId === p.id}
-                                className="p-1 text-white bg-danger-500 hover:bg-danger-600 rounded transition"
-                                title="Confirm delete profile"
-                              >
-                                {deletingProfileId === p.id ? (
-                                  <Loader2 className="h-3 w-3 animate-spin" />
-                                ) : (
-                                  <Check className="h-3 w-3" />
-                                )}
-                              </button>
-                              <button
-                                onClick={() => setConfirmingDeleteProfileId(null)}
-                                className="p-1 text-ink-muted hover:text-ink rounded transition"
-                              >
-                                <X className="h-3 w-3" />
-                              </button>
-                            </div>
-                          ) : (
+                        {confirmingDeleteProfileId === p.id ? (
+                          <div className="flex items-center gap-1">
                             <button
-                              onClick={() => setConfirmingDeleteProfileId(p.id)}
-                              className="p-1 text-ink-muted hover:text-danger-600 hover:bg-danger-50 rounded transition"
-                              title="Delete Profile"
+                              onClick={() => handleDeleteProfile(p.id)}
+                              disabled={deletingProfileId === p.id}
+                              className="p-1 text-white bg-danger-500 hover:bg-danger-600 rounded transition"
+                              title="Confirm delete profile"
                             >
-                              <Trash2 className="h-3 w-3" />
+                              {deletingProfileId === p.id ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                              ) : (
+                                <Check className="h-3 w-3" />
+                              )}
                             </button>
-                          )
+                            <button
+                              onClick={() => setConfirmingDeleteProfileId(null)}
+                              className="p-1 text-ink-muted hover:text-ink rounded transition"
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setConfirmingDeleteProfileId(p.id)}
+                            className="p-1 text-ink-muted hover:text-danger-600 hover:bg-danger-50 rounded transition"
+                            title="Delete Profile"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </button>
                         )}
                       </div>
                     )}
@@ -320,19 +322,30 @@ export default function TrainPage() {
               <span className="flex h-12 w-12 items-center justify-center rounded-full bg-brand-50 text-brand-600">
                 <BookOpen className="h-6 w-6" strokeWidth={2} />
               </span>
-              <p className="text-ink font-semibold">
-                No trained phrases in &ldquo;{activeProfile?.name || "this profile"}&rdquo; yet
-              </p>
-              <p className="text-sm text-ink-muted max-w-sm">
-                Add AI-sounding phrases and how you rewrite them for this style profile. The AI humanizer will learn this style.
-              </p>
-              <button
-                onClick={() => setPhraseModal({ mode: "create" })}
-                className="inline-flex items-center gap-2 rounded-lg bg-brand-gradient text-white text-sm font-semibold px-4 py-2.5 shadow-lift hover:brightness-110 transition mt-2"
-              >
-                <Plus className="h-4 w-4" strokeWidth={2.5} />
-                Add Phrase to Profile
-              </button>
+              {profiles.length === 0 ? (
+                <>
+                  <p className="text-ink font-semibold">No style profile yet</p>
+                  <p className="text-sm text-ink-muted max-w-sm">
+                    Create one with &ldquo;New Profile&rdquo; above, then add trained phrases to it.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="text-ink font-semibold">
+                    No trained phrases in &ldquo;{activeProfile?.name}&rdquo; yet
+                  </p>
+                  <p className="text-sm text-ink-muted max-w-sm">
+                    Add AI-sounding phrases and how you rewrite them for this style profile. The AI humanizer will learn this style.
+                  </p>
+                  <button
+                    onClick={() => setPhraseModal({ mode: "create" })}
+                    className="inline-flex items-center gap-2 rounded-lg bg-brand-gradient text-white text-sm font-semibold px-4 py-2.5 shadow-lift hover:brightness-110 transition mt-2"
+                  >
+                    <Plus className="h-4 w-4" strokeWidth={2.5} />
+                    Add Phrase to Profile
+                  </button>
+                </>
+              )}
             </div>
           ) : (
             <div className="overflow-x-auto">
