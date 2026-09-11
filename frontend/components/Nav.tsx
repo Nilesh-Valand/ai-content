@@ -2,11 +2,11 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Sparkles, ScanSearch, GraduationCap, History } from "lucide-react";
+import { Sparkles, Wand2, GraduationCap, History } from "lucide-react";
 import UserSwitcher from "@/components/UserSwitcher";
 
 const links = [
-  { href: "/", label: "Analyzer", icon: ScanSearch },
+  { href: "/", label: "Humanize", icon: Wand2 },
   { href: "/history", label: "History", icon: History },
   { href: "/train", label: "Train Phrases", icon: GraduationCap },
 ];

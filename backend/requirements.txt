@@ -7,6 +7,7 @@ pydantic==2.9.2
 pydantic-settings==2.5.2
 python-dotenv==1.0.1
 groq==1.7.0
+openai==3.13.0
 emoji==2.15.0
 
 # CPU-only PyTorch, for the local GPT-2 perplexity/burstiness scorer in

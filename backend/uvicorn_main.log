@@ -1,56 +1,17 @@
-INFO:     Started server process [22660]
+INFO:     Started server process [8200]
 INFO:     Waiting for application startup.
 INFO:     Application startup complete.
 INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
-INFO:     127.0.0.1:62657 - "GET /health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61498 - "GET /health HTTP/1.1" 200 OK
 Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
-Loading weights:   0%|          | 0/148 [00:00<?, ?it/s]Loading weights:  14%|#3        | 20/148 [00:00<00:00, 199.76it/s]Loading weights:  27%|##7       | 40/148 [00:00<00:00, 120.68it/s]Loading weights: 100%|##########| 148/148 [00:00<00:00, 465.43it/s]
+Loading weights:   0%|          | 0/148 [00:00<?, ?it/s]Loading weights: 100%|##########| 148/148 [00:00<00:00, 18570.53it/s]
 [transformers] `loss_type=None` was set in the config but it is unrecognized. Using the default loss: `ForCausalLMLoss`.
-INFO:     127.0.0.1:62679 - "POST /humanize HTTP/1.1" 200 OK
-INFO:     127.0.0.1:62737 - "GET /users HTTP/1.1" 200 OK
-INFO:     127.0.0.1:62738 - "GET /users HTTP/1.1" 200 OK
-INFO:     127.0.0.1:62746 - "POST /analyze HTTP/1.1" 200 OK
-INFO:     127.0.0.1:62746 - "GET /profiles?user_id=8 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:62746 - "GET /profiles?user_id=8 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:62746 - "GET /train/phrases?profile_id=20 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:62746 - "POST /humanize HTTP/1.1" 200 OK
-INFO:     127.0.0.1:63295 - "GET /users HTTP/1.1" 200 OK
-INFO:     127.0.0.1:63295 - "GET /users HTTP/1.1" 200 OK
-INFO:     127.0.0.1:63297 - "OPTIONS /analyze HTTP/1.1" 200 OK
-INFO:     127.0.0.1:63297 - "POST /analyze HTTP/1.1" 200 OK
-INFO:     127.0.0.1:63297 - "GET /profiles?user_id=8 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:63297 - "GET /profiles?user_id=8 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:63297 - "GET /train/phrases?profile_id=20 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:63297 - "OPTIONS /humanize HTTP/1.1" 200 OK
-INFO:     127.0.0.1:63297 - "POST /humanize HTTP/1.1" 200 OK
-INFO:     127.0.0.1:63315 - "GET /projects?user_id=8 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:63316 - "GET /projects?user_id=8 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:63366 - "POST /analyze HTTP/1.1" 200 OK
-INFO:     127.0.0.1:63366 - "GET /profiles?user_id=8 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:63366 - "GET /profiles?user_id=8 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:63366 - "GET /train/phrases?profile_id=20 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:63366 - "POST /humanize HTTP/1.1" 200 OK
-INFO:     127.0.0.1:63368 - "POST /analyze HTTP/1.1" 200 OK
-INFO:     127.0.0.1:63368 - "GET /profiles?user_id=8 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:63368 - "GET /profiles?user_id=8 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:63368 - "GET /train/phrases?profile_id=20 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:63368 - "POST /humanize HTTP/1.1" 200 OK
-INFO:     127.0.0.1:63527 - "GET /train/phrases?profile_id=22 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:63543 - "POST /humanize HTTP/1.1" 200 OK
-INFO:     127.0.0.1:63595 - "POST /humanize HTTP/1.1" 200 OK
-INFO:     127.0.0.1:63633 - "GET /users HTTP/1.1" 200 OK
-INFO:     127.0.0.1:63633 - "GET /users HTTP/1.1" 200 OK
-INFO:     127.0.0.1:63743 - "POST /analyze HTTP/1.1" 200 OK
-INFO:     127.0.0.1:63743 - "GET /profiles?user_id=8 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:63743 - "GET /profiles?user_id=8 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:63743 - "GET /train/phrases?profile_id=20 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:63743 - "POST /humanize HTTP/1.1" 200 OK
-INFO:     127.0.0.1:51309 - "GET /users HTTP/1.1" 200 OK
-INFO:     127.0.0.1:51309 - "GET /users HTTP/1.1" 200 OK
-INFO:     127.0.0.1:51311 - "OPTIONS /analyze HTTP/1.1" 200 OK
-INFO:     127.0.0.1:51311 - "POST /analyze HTTP/1.1" 200 OK
-INFO:     127.0.0.1:51311 - "GET /profiles?user_id=8 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:51311 - "GET /profiles?user_id=8 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:51311 - "GET /train/phrases?profile_id=20 HTTP/1.1" 200 OK
-INFO:     127.0.0.1:51311 - "OPTIONS /humanize HTTP/1.1" 200 OK
-INFO:     127.0.0.1:51311 - "POST /humanize HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61520 - "POST /humanize HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61637 - "GET /users HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61637 - "GET /users HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61637 - "GET /profiles?user_id=8 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61637 - "GET /train/phrases?profile_id=25 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61702 - "POST /humanize HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61831 - "OPTIONS /humanize HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61831 - "POST /humanize HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61913 - "POST /humanize HTTP/1.1" 200 OK

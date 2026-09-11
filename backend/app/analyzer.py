@@ -33,17 +33,36 @@ def get_nlp():
 
 
 # Signal weights — must sum to 1.0. Tune these based on observed accuracy.
+#
+# sentence_variation raised from 0.08 to 0.15 (external review, confirmed
+# against this app's own output): it's the coefficient of variation of
+# sentence word-counts — literal length burstiness, not structural variety
+# — which published detector research (GLTR/DetectGPT-adjacent work) cites
+# as one of the most consistently useful signals there is. At 0.08 it was
+# underpowered specifically for MODERATE burstiness problems: the
+# closed-loop's hard-cap correction trigger (_SIGNAL_HARD_CAP in
+# humanizer.py) checks each signal's raw score independently, so a bad
+# score still forces a revision regardless of blend weight — but a
+# signal sitting just under that cap only moved the headline percentage a
+# couple of points, letting it slide in the score that actually gates
+# whether the closed loop stops early. Funded by trimming em_dash_overuse
+# (0.04 -> 0.02: em dashes are now stripped unconditionally downstream in
+# rule_scrubber regardless of score, so this signal has little marginal
+# work left to do), repetition, diversity, and rule_of_three by 0.02/0.01
+# each — all three are still real signals, just less centrally cited than
+# burstiness and already well covered by the LLM's own instructions plus
+# best-of-N candidate selection.
 WEIGHTS = {
     "ai_vocab": 0.16,
     "predictability": 0.11,
-    "repetition": 0.11,
-    "diversity": 0.12,
+    "repetition": 0.09,
+    "diversity": 0.10,
     "generic_promo": 0.12,
-    "rule_of_three": 0.06,
-    "sentence_variation": 0.08,
+    "rule_of_three": 0.05,
+    "sentence_variation": 0.15,
     "specificity": 0.14,
     "negative_parallelism": 0.06,
-    "em_dash_overuse": 0.04,
+    "em_dash_overuse": 0.02,
 }
 
 # "Not just X, but Y" / "it's not X, it's Y" — a well-documented LLM tic
@@ -186,8 +205,14 @@ def score_sentence_variation(sentences: List[str]):
 
 def score_predictability(sentences: List[str]):
     """
-    Proxy for structural predictability: repeated sentence-opener crutches
-    and repeated leading-word patterns across sentences.
+    Proxy for structural predictability: repeated sentence-opener crutches,
+    repeated leading-word patterns, and consecutive sentences that share a
+    parallel gerund-led template ("Saving a bit each week can build a fund.
+    Reading a little each day can lead to finishing books. Practicing a
+    skill can turn into real knowledge.") — a sentence-level version of
+    "rule of three" that the comma-list regex in score_rule_of_three can't
+    see, since each sentence here is a separate, grammatically complete
+    one rather than a list within a single sentence.
     """
     if len(sentences) < 2:
         return 0.0, []
@@ -202,9 +227,24 @@ def score_predictability(sentences: List[str]):
             if s_lower.strip().startswith(crutch):
                 crutch_hits.append(crutch)
 
-    signal = len(repeated_openers) + len(crutch_hits)
+    # Consecutive sentences that both open on a gerund ("-ing" word) are a
+    # cheap, reliable proxy for that parallel-template pattern — two or
+    # more in a row is the tell, using a DIFFERENT gerund each time (so
+    # the exact-opener-word check above, which only catches the SAME
+    # repeated word, doesn't already cover this).
+    gerund_run_hits = []
+    run_length = 0
+    for w in openers:
+        if w.endswith("ing") and len(w) > 4:
+            run_length += 1
+            if run_length >= 2:
+                gerund_run_hits.append(w)
+        else:
+            run_length = 0
+
+    signal = len(repeated_openers) + len(crutch_hits) + len(gerund_run_hits)
     score = min(signal / max(len(sentences) * 0.6, 1), 1.0)
-    return round(score, 3), list(set(crutch_hits))
+    return round(score, 3), list(set(crutch_hits + gerund_run_hits))
 
 
 def score_negative_parallelism(text: str):

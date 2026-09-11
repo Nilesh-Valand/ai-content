@@ -126,6 +126,10 @@ class HumanizeRequest(BaseModel):
     project_id: Optional[int] = None
     profile_id: Optional[int] = None
     phrase_ids: Optional[List[int]] = None
+    # Only used when project_id is None (a fresh humanize, not one loaded
+    # from an existing project) — attributes the new project record to the
+    # right user bucket. See main.py's /humanize handler.
+    user_id: Optional[int] = None
 
     @field_validator("content", mode="before")
     @classmethod
@@ -149,6 +153,13 @@ class HumanizeResponse(BaseModel):
     # in humanizer.py. None only if scoring itself failed — the humanized
     # text is still returned in that case.
     ai_score_after: Optional[float] = None
+    # The project this humanize call was saved under — either the one the
+    # request already named, or a new one created on the fly since the
+    # frontend no longer runs a separate /analyze step first (see
+    # main.py's /humanize handler). The client should hang on to this and
+    # send it back on the next call (e.g. "Regenerate") so that call
+    # updates the same History entry instead of creating a duplicate.
+    project_id: Optional[int] = None
 
 
 class TrainedPhraseCreate(BaseModel):

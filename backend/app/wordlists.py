@@ -73,6 +73,15 @@ AI_ASSOCIATED_VOCAB = [
     "take a deep dive", "deep-dive into", "a wealth of", "a myriad of",
     "a plethora of", "speaks volumes", "at the intersection of",
     "the intersection of",
+    # Canonical short-maxim clichés — the self-help/listicle "X is key"
+    # register. Unlike the longer aphoristic sentences this app's
+    # dedicated LLM pass targets (see humanizer.APHORISM_CHECK_SYSTEM_PROMPT),
+    # these are fixed, mechanically matchable phrases regardless of what
+    # precedes them ("Consistency is key.", "Communication is key to a
+    # healthy relationship."), so they're caught deterministically here
+    # instead of relying on an LLM to notice them.
+    "is key", "is key to", "practice makes perfect", "slow and steady wins the race",
+    "what matters most", "what matters is",
 ]
 
 # Generic / promotional filler common in AI-generated marketing copy

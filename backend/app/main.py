@@ -2,6 +2,7 @@ import os
 from typing import List, Optional
 
 import groq
+import openai
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -160,24 +161,25 @@ def humanize(payload: HumanizeRequest):
         )
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
-    except groq.RateLimitError as e:
+    except (groq.RateLimitError, openai.RateLimitError) as e:
         # _call_groq (humanizer.py) already retries a 429 several times
-        # with backoff before ever raising it this far — reaching here
-        # means the account's Groq rate limit is still exhausted after
-        # those retries, so this is a real "wait longer" case, not a bug.
-        # Surface Groq's own message (which names the exact limit type —
-        # e.g. requests-per-minute vs. tokens-per-day — and how long until
-        # it resets) instead of a generic one, so this is self-diagnosing
-        # without needing to dig through server logs.
+        # with backoff (and tries a fallback model, if one is configured)
+        # before ever raising it this far — reaching here means the
+        # provider's rate limit is still exhausted after all of that, so
+        # this is a real "wait longer" case, not a bug. Surface the
+        # provider's own message (which typically names the exact limit
+        # type — e.g. requests-per-minute vs. tokens-per-day — and how
+        # long until it resets) instead of a generic one, so this is
+        # self-diagnosing without needing to dig through server logs.
         try:
-            groq_detail = e.body.get("error", {}).get("message") if isinstance(e.body, dict) else None
+            provider_detail = e.body.get("error", {}).get("message") if isinstance(e.body, dict) else None
         except Exception:
-            groq_detail = None
+            provider_detail = None
         raise HTTPException(
             status_code=429,
-            detail="Groq API rate limit reached — the humanizer makes several AI calls per "
-                   "request, so this can happen after repeated use in a short window. "
-                   + (groq_detail or "Wait a bit and try again."),
+            detail="LLM provider rate limit reached — the humanizer makes several AI calls "
+                   "per request, so this can happen after repeated use in a short window. "
+                   + (provider_detail or "Wait a bit and try again."),
         )
     except Exception as e:
         raise HTTPException(
@@ -189,10 +191,37 @@ def humanize(payload: HumanizeRequest):
     if not humanized:
         raise HTTPException(status_code=502, detail="Humanization returned empty output.")
 
-    if payload.project_id is not None:
-        db.update_project_humanized(payload.project_id, humanized)
+    project_id = payload.project_id
+    if project_id is not None:
+        db.update_project_humanized(project_id, humanized)
+    else:
+        # No project to attach this to (the frontend no longer requires a
+        # separate /analyze step before humanizing) — create one now so it
+        # still shows up in History, scored the same way /analyze scores
+        # anything else. This is a local, non-LLM call (analyze_text does
+        # no API calls), so it doesn't add to the humanize request's own
+        # rate-limit/latency footprint.
+        try:
+            analysis = analyze_text(payload.content)
+            project = db.create_project(
+                content=payload.content,
+                overall_pct=analysis["overall_pct"],
+                confidence=analysis["confidence"],
+                detected_patterns=[p.model_dump() for p in analysis["detected_patterns"]],
+                sentence_scores=[s.model_dump() for s in analysis["sentence_scores"]],
+                highlighted_phrases=analysis["highlighted_phrases"],
+                suggestions=[],
+                user_id=payload.user_id,
+            )
+            db.update_project_humanized(project["id"], humanized)
+            project_id = project["id"]
+        except Exception:
+            # History is a convenience, not the point of this endpoint —
+            # never fail a successful humanize just because saving it
+            # afterward didn't work.
+            project_id = None
 
-    return HumanizeResponse(humanized_content=humanized, ai_score_after=ai_score_after)
+    return HumanizeResponse(humanized_content=humanized, ai_score_after=ai_score_after, project_id=project_id)
 
 
 @app.post("/train/phrases", response_model=TrainedPhrase)

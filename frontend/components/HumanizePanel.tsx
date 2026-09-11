@@ -54,7 +54,13 @@ export default function HumanizePanel({
   const [selectedProfileId, setSelectedProfileId] = useState<number | undefined>(undefined);
   const [selectedPhraseIds, setSelectedPhraseIds] = useState<number[]>([]);
   const [humanized, setHumanized] = useState<string | null>(initialHumanized ?? null);
-  const [aiScoreAfter, setAiScoreAfter] = useState<number | null>(null);
+  // Starts from the projectId prop (set when a project was loaded from
+  // History via its URL), but updates from the server's response after a
+  // fresh humanize with no prop — the backend creates a project on the
+  // fly in that case (see main.py's /humanize handler) so it still shows
+  // up in History, and this makes sure a later "Regenerate" in the same
+  // session updates that same entry instead of creating a new one each time.
+  const [currentProjectId, setCurrentProjectId] = useState<number | undefined>(projectId);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -93,6 +99,13 @@ export default function HumanizePanel({
   }, [profileDropdownOpen, previewProfileId, previewPhrases]);
 
   const { activeUserId } = useUser();
+
+  // The parent only sets the projectId prop when a project was loaded
+  // from History (via its URL) — pick that up if it changes, e.g.
+  // navigating from one History entry to another without a full reload.
+  useEffect(() => {
+    setCurrentProjectId(projectId);
+  }, [projectId]);
 
   useEffect(() => {
     if (activeUserId === undefined) return;
@@ -145,9 +158,17 @@ export default function HumanizePanel({
     setError(null);
     setCopied(false);
     try {
-      const res = await humanizeContent(content, projectId, selectedProfileId, selectedPhraseIds);
+      const res = await humanizeContent(
+        content,
+        currentProjectId,
+        selectedProfileId,
+        selectedPhraseIds,
+        activeUserId
+      );
       setHumanized(res.humanized_content);
-      setAiScoreAfter(typeof res.ai_score_after === "number" ? res.ai_score_after : null);
+      if (typeof res.project_id === "number") {
+        setCurrentProjectId(res.project_id);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong.");
     } finally {
@@ -337,42 +358,24 @@ export default function HumanizePanel({
           <p className="text-[15px] leading-relaxed whitespace-pre-wrap text-ink">
             {humanized}
           </p>
-          <div className="flex items-center justify-between gap-2 mt-3">
-            {aiScoreAfter !== null ? (
-              <span
-                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold ${
-                  aiScoreAfter >= 60
-                    ? "bg-danger-50 text-danger-600 border-danger-400/30"
-                    : aiScoreAfter >= 30
-                    ? "bg-warn-50 text-warn-600 border-warn-400/30"
-                    : "bg-success-50 text-success-600 border-success-400/30"
-                }`}
-                title="Re-scored with this app's own AI-writing-likelihood analyzer after humanizing"
-              >
-                Est. AI score: {aiScoreAfter.toFixed(0)}%
+          <div className="flex items-center justify-end gap-2 mt-3">
+            {copyFailed && (
+              <span className="flex items-center gap-1 text-xs text-danger-600">
+                <AlertTriangle className="h-3.5 w-3.5" />
+                Couldn&rsquo;t copy — select the text and copy manually
               </span>
-            ) : (
-              <span />
             )}
-            <div className="flex items-center gap-2">
-              {copyFailed && (
-                <span className="flex items-center gap-1 text-xs text-danger-600">
-                  <AlertTriangle className="h-3.5 w-3.5" />
-                  Couldn&rsquo;t copy — select the text and copy manually
-                </span>
+            <button
+              onClick={handleCopy}
+              className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1.5 text-xs font-medium text-ink-muted hover:text-ink hover:border-border-strong transition-colors"
+            >
+              {copied ? (
+                <Check className="h-3.5 w-3.5 text-success-600" />
+              ) : (
+                <Copy className="h-3.5 w-3.5" />
               )}
-              <button
-                onClick={handleCopy}
-                className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1.5 text-xs font-medium text-ink-muted hover:text-ink hover:border-border-strong transition-colors"
-              >
-                {copied ? (
-                  <Check className="h-3.5 w-3.5 text-success-600" />
-                ) : (
-                  <Copy className="h-3.5 w-3.5" />
-                )}
-                {copied ? "Copied" : "Copy"}
-              </button>
-            </div>
+              {copied ? "Copied" : "Copy"}
+            </button>
           </div>
         </div>
       )}

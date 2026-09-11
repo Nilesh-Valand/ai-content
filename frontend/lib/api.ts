@@ -234,13 +234,19 @@ export async function deleteTrainedPhrase(id: number): Promise<void> {
 export interface HumanizeResponse {
   humanized_content: string;
   ai_score_after?: number | null;
+  // The project this call was saved under (existing, or newly created if
+  // none was passed in) — hang on to this and pass it as projectId on the
+  // next call so a "Regenerate" updates the same History entry instead of
+  // creating a duplicate.
+  project_id?: number | null;
 }
 
 export async function humanizeContent(
   content: string,
   projectId?: number,
   profileId?: number,
-  phraseIds?: number[]
+  phraseIds?: number[],
+  userId?: number
 ): Promise<HumanizeResponse> {
   const res = await fetch(`${getApiBase()}/humanize`, {
     method: "POST",
@@ -250,6 +256,7 @@ export async function humanizeContent(
       project_id: projectId ?? null,
       profile_id: profileId ?? null,
       phrase_ids: phraseIds && phraseIds.length > 0 ? phraseIds : null,
+      user_id: userId ?? null,
     }),
   });
 

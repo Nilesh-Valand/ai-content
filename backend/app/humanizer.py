@@ -40,18 +40,34 @@ Three things steer that beyond the raw content itself:
      revision. This repeats for a bounded number of rounds, keeping
      whichever candidate actually scored lowest.
 """
+import difflib
 import os
 import re
 import time
 from typing import List, Optional, Tuple
 
 import groq
+import openai
 
 from .analyzer import analyze_text, get_nlp
 from .db import get_profile, list_trained_phrases
 from .perplexity import score_document as score_perplexity
 from .rule_scrubber import scrub_ai_signals
-from .suggestions import DEFAULT_MODEL, get_client
+from .suggestions import (
+    DEFAULT_MODEL,
+    get_client,
+    get_model,
+    reasoning_kwargs,
+    strip_thinking,
+    using_custom_endpoint,
+)
+
+# Both SDKs raise their own RateLimitError (groq's client is a fork of the
+# openai one, so the two classes have identical shape — .response,
+# .body — but no shared base beyond Exception), so every rate-limit catch
+# in this module needs to check for both regardless of which provider is
+# actually configured.
+_RATE_LIMIT_ERRORS = (groq.RateLimitError, openai.RateLimitError)
 
 BASE_GUIDELINES = """You are an expert human editor and personalized writing assistant. Rewrite the given text so it reads as naturally human-written while matching the user's personal writing voice and preserving the original meaning, facts, tone, and approximate length.
 
@@ -61,10 +77,11 @@ Guidelines:
 - Vary sentence length dramatically within the same paragraph — mix several short, punchy sentences (5-10 words) with longer, more complex ones. Uniform sentence length is one of the strongest tells of AI-generated text ("low burstiness"); avoid it.
 - Vary how sentences open. Never start more than one sentence in the same paragraph with the same word, and avoid leading with stock transition words (Furthermore, Moreover, Additionally, However, Therefore, In conclusion, Overall, etc.) altogether.
 - Never construct a three-item parallel list, whether it's formatted as a bulleted list, written inline with "and"/"or" ("enhancing X, fostering Y, and driving Z"), or strung together with no conjunction at all ("apps can be lifesavers, calendars, task trackers, reminders"). All three shapes are the same "rule of three" listicle cadence, and it's one of the most well-documented AI tells there is. Use two items, four items, or a single plainly stated point instead of exactly three in a row.
+- The same "rule of three" tell also happens at the sentence level, not just within one sentence's list — three consecutive sentences each following the same template with a different subject swapped in ("Saving a bit each week can build a fund. Reading a little each day can lead to finishing books. Practicing a skill can turn into real knowledge.") is exactly as recognizable as a comma-separated list. Vary the grammatical shape of consecutive sentences, not just their content.
 - Avoid turning individual points into short, tidy, quotable "life advice" one-liners ("We all have the same 24 hours," "Skip the to-do list that never gets done") — that clean, self-contained maxim cadence is itself a hallmark of AI-generated self-help and listicle content, independent of the specific words used, and it's exactly the shape real detectors flag most reliably. Instead: tie the point to something more specific or situational, let it run on into a slightly longer and looser sentence with concrete detail rather than a tidy compressed one, or fold it into the sentence before or after it instead of giving it its own standalone beat.
 - Never use "not just X, but Y" or "it's not X, it's Y" constructions (negative parallelism) — state the point directly.
 - Do not use em dashes (—). Use a period, comma, or parentheses instead.
-- Do not use emoji, hashtags, or markdown formatting (no asterisks, headers, or bullet lists) anywhere in the output.
+- Do not use emoji, hashtags, or markdown headers/asterisks anywhere in the output, and never invent a bulleted or numbered list where the original didn't have one. But if the ORIGINAL already uses a bulleted or numbered list, preserve that structure in the rewrite: keep it as a list, one item per line, in the same order — rewrite the wording of each item the same way you'd rewrite a sentence (naturally, not word-for-word), but don't collapse the list into a paragraph or drop items. Use a real bullet character (•), never a plain hyphen or asterisk as the marker, for an unordered list; use sequential numbers ("1. ", "2. ", ...) for an ordered one.
 - Prefer concrete, natural, and expressive phrasing over generic AI filler words and hedge phrases (e.g. "it's worth noting," "in today's fast-paced world," "at the end of the day," "when it comes to").
 - Write with a genuine human voice, not a smoothed-out summary of one: it's fine for a sentence to trail into a related thought with a comma, for a paragraph to open on a small aside, or for phrasing to be slightly informal where the register allows it — real writing isn't uniformly polished the way AI output tends to be.
 - Avoid the reflex of picking the single most predictable next word. AI-generated prose tends toward the statistically "safest," most expected phrasing at every turn; real human writing takes small, natural detours — an unexpected but apt word choice, a mildly colloquial turn of phrase, a bit of a specific idiom — instead of the smoothest possible path through the sentence. Lean into that instead of optimizing every clause for maximum polish.
@@ -80,6 +97,7 @@ Guidelines:
 - Do not add commentary, notes, or explanations about the rewrite.
 - Do NOT perform rigid, literal string substitution. Apply style preferences flexibly and intelligently according to surrounding context.
 - Do NOT summarize, condense, or shorten the text. Rewrite it sentence by sentence and paragraph by paragraph, covering every point in the original — the rewrite must contain roughly the same number of sentences and paragraphs as the input, not a shorter recap of it.
+- Do NOT pad, elaborate, or expand beyond the original either. Every sentence in the rewrite must correspond to something actually said in the input — never add a new topic, claim, example, or paragraph that wasn't there, even one that sounds plausible or fits the theme. "Restructure and add concrete grounding" means reshaping and sharpening what the input already says, never inventing additional content to make the piece longer, more detailed, or more complete-feeling than the source actually was. If the input is short, the rewrite stays short — length matches the input in both directions, not just against cutting it down.
 - A "style" or "platform" instruction (e.g. Instagram, LinkedIn) changes tone, vocabulary, and voice only — it is never a license to cut content or turn a full passage into a single short line or caption."""
 
 # --- Closed-loop detector feedback -----------------------------------------
@@ -91,12 +109,12 @@ Guidelines:
 _SIGNAL_GUIDANCE = {
     "ai_vocab": "Replace any remaining generic AI-marketing vocabulary or buzzwords (e.g. \"robust\", \"seamless\", \"leverage\", \"delve\", \"underscores\") with plain, specific wording.",
     "generic_promo": "Replace any remaining generic promotional filler (\"best-in-class\", \"industry-leading\", \"actionable insights\", etc.) with plain, concrete wording.",
-    "predictability": "Vary sentence openers — no two sentences in the same paragraph should start with the same word, and drop stock transition words (however, therefore, furthermore, additionally, notably, overall, in conclusion) as sentence openers entirely.",
+    "predictability": "Vary sentence openers — no two sentences in the same paragraph should start with the same word, and drop stock transition words (however, therefore, furthermore, additionally, notably, overall, in conclusion) as sentence openers entirely. Also check for consecutive sentences that all follow the same template with a different gerund each time (\"Saving a bit each week can build a fund. Reading a little each day can lead to finishing books. Practicing a skill can turn into real knowledge.\") — this parallel-sentence pattern is a strong AI tell even though each sentence uses different words; rewrite so consecutive sentences don't share the same grammatical shape.",
     "repetition": "Remove repeated word pairs or three-word phrases — the same short sequence of words appears more than once; reword one of the occurrences.",
     "diversity": "Increase word variety — several words or word-roots are being reused too often; use different phrasing where the same idea recurs.",
     "rule_of_three": "Break up any \"X, Y, and Z\" three-item parallel list into flowing prose, or restructure it to two or four items instead of exactly three.",
     "sentence_variation": "Vary sentence length much more — the current sentences are too uniform in length. Mix short (5-10 word) sentences with longer, more complex ones in the same paragraph.",
-    "specificity": "If the ORIGINAL SOURCE (given below) contains a number, name, date, or specific example that got smoothed away in the current text, restore it. Do NOT invent a new number, statistic, percentage, date, or named person/company/study that isn't in the original source — if the original has no such detail to draw on, leave this issue alone rather than fabricating one.",
+    "specificity": "If the ORIGINAL SOURCE (given below) contains a number, name, date, or specific example that got smoothed away in the current text, restore it. Do NOT invent a new number, statistic, percentage, date, named person/company/study, or entire new topic/claim/example that isn't in the original source — if the original has no such detail to draw on, leave this issue alone rather than fabricating one, even a plausible-sounding one.",
     "negative_parallelism": "Remove any \"not just X, but Y\" or \"it's not X, it's Y\" construction — state the point directly instead.",
     "em_dash_overuse": "Remove em dashes (—) entirely — replace each with a period, comma, or parentheses.",
     "perplexity": "The wording and sentence rhythm still read as too statistically predictable to a language-model-based check, even though no specific banned phrase is present — this is the actual perplexity/burstiness signal real AI detectors use, distinct from any surface wordlist. Make bolder, less obvious word choices instead of the safest synonym in several places, and push sentence length and rhythm to vary even more sharply from one sentence to the next within each paragraph.",
@@ -156,6 +174,88 @@ Never invent a new number, statistic, percentage, date, or named person/company/
 Return ONLY the revised text, nothing else."""
 
 
+# --- Dedicated aphorism-reduction pass --------------------------------
+#
+# Confirmed twice now against real third-party detector output (once via
+# an annotated screenshot, once via direct user-reported text): a short,
+# tidy, standalone "life advice" sentence — the kind of clean, quotable
+# maxim common in AI-written self-help/listicle content ("The key is to
+# take a brief pause without losing your rhythm." / "A short break can
+# sometimes save more time than it takes.") — is one of the most
+# reliably flagged patterns there is, and it's invisible to every numeric
+# signal this app has (rule-based analyzer AND the local perplexity
+# model). Folding a reminder about it into the general revision prompt
+# (see _APHORISM_REMINDER below) only helps when a revision round
+# happens for some OTHER reason, and even then it's one instruction
+# competing with several others in the same call — evidently not reliable
+# enough on its own, since the pattern kept surviving. This gets its own
+# single-purpose pass instead, run unconditionally on the final text
+# regardless of what the score-driven refinement loop decided, because a
+# focused, one-job prompt is far more likely to actually be followed than
+# the same instruction buried in a longer list.
+APHORISM_CHECK_SYSTEM_PROMPT = """You will be shown a piece of text. Find every sentence that is a short, standalone, quotable piece of general life advice — the kind of clean one-liner that could work as a motivational poster caption. These often sit at or near the end of a paragraph and state a general truth rather than a specific, situational point.
+
+Merely rewording such a sentence with different words in the SAME shape is NOT a fix. This is WRONG: "The key is to take a brief pause" -> "Taking a brief pause is essential" — still a standalone maxim, just with different words. A real fix does one of:
+(a) DELETE the sentence entirely if the paragraph reads fine without it, or
+(b) merge its content into the sentence before it using "so", "which means", "and that", etc., so it's no longer its own sentence, or
+(c) replace it with a concrete, situational detail instead of a general statement.
+
+Example of a real fix:
+BEFORE: "Long or distracting breaks can make it harder to get back into work. The key is to take a brief pause without losing your rhythm."
+AFTER: "Long or distracting breaks can make it harder to get back into work, so a quick five-minute pause tends to work better than a rambling one."
+
+Example of a real fix (deletion):
+BEFORE: "Your brain keeps working in the background, even when you are doing something else. Being productive isn't about filling every minute with activity."
+AFTER: "Your brain keeps working in the background, even when you are doing something else."
+
+Work in two steps:
+1. List every sentence in the given text matching this pattern, quoted exactly. If none match, say so.
+2. Write the full corrected text, with each listed sentence actually fixed using (a), (b), or (c) above — not just reworded in place. Leave every other sentence completely unchanged: same wording, same paragraph breaks, same order.
+
+Wrap ONLY the final corrected text from step 2 (not the list from step 1) between the exact markers ===TEXT=== and ===END=== so it can be extracted programmatically. Always include these markers, even if nothing needed to change — in that case put the text unchanged between them."""
+
+
+_APHORISM_RESULT_PATTERN = re.compile(r"===TEXT===(.*?)===END===", re.DOTALL)
+
+
+def _reduce_aphorisms(text: str, profile: Optional[dict]) -> str:
+    """Runs the aphorism-check pass above, once, unconditionally, on the
+    text that's actually about to be returned to the user. Uses a
+    list-then-rewrite structure (see the prompt) rather than asking
+    directly for a bare corrected text — confirmed empirically against
+    real flagged text that this identifies and actually fixes more
+    instances than a direct "just return the fixed text" framing does
+    (which tended to either miss most instances or apply only cosmetic,
+    same-shape rewordings that leave the underlying pattern intact). The
+    ===TEXT===/===END=== markers let the reasoning-then-answer structure
+    stay in the response without it leaking into the returned text.
+
+    Fails safe: any error, missing markers, an empty result, or a result
+    whose length drifted well outside what a "targeted fix, not a
+    rewrite" should produce (checked because this is a single-purpose
+    pass with no further verification step after it — a wholesale
+    rewrite slipping through here would go out ungated) all fall back to
+    the input `text` unchanged rather than risk a bigger, unreviewed
+    change."""
+    if not _has_token_headroom(_MIN_TOKEN_HEADROOM):
+        return text
+    try:
+        system_prompt = APHORISM_CHECK_SYSTEM_PROMPT + _profile_context_line(profile)
+        raw = _call_groq(system_prompt, text, temperature=0.4)
+        match = _APHORISM_RESULT_PATTERN.search(raw)
+        if not match:
+            return text
+        result = match.group(1).strip()
+        if not result:
+            return text
+        ratio = len(result.split()) / max(len(text.split()), 1)
+        if not (0.75 <= ratio <= 1.1):
+            return text
+        return result
+    except Exception:
+        return text
+
+
 def _build_signal_feedback(signals: dict) -> List[str]:
     """Turns the analyzer's per-signal scores into a short list of concrete,
     actionable revision instructions — only for signals still elevated
@@ -174,6 +274,7 @@ QUALITY_CHECK_SYSTEM_PROMPT = """You are a meticulous copy editor doing a final 
 - Grammar or punctuation errors
 - Meaning drift — the rewrite says something different from the original
 - Fabricated specifics — a number, statistic, percentage, date, or named person/company/study that appears in the REWRITE but is NOT present anywhere in the ORIGINAL. This is a serious defect: remove or generalize the fabricated detail back to what the ORIGINAL actually supports.
+- Fabricated content at the topic/claim level — a whole sentence, example, or point in the REWRITE that doesn't correspond to anything the ORIGINAL actually said, even if it contains no specific invented number or name (e.g. the ORIGINAL never mentions data-driven decision-making or continuous learning, but the REWRITE adds a passage about one of those anyway because it fits the general subject). This is just as serious as a fabricated number: delete the added material entirely rather than trying to tie it back to the source.
 - Paragraph breaks collapsed or merged compared to the ORIGINAL — if the ORIGINAL had multiple paragraphs and the REWRITE flattened them into fewer (or one dense block), restore the original paragraph breaks at the equivalent points in the REWRITE.
 - Tone that contradicts the target writing profile, if one is given below
 
@@ -313,7 +414,7 @@ _RATE_LIMIT_MAX_WAIT_SECONDS = 15.0
 _MIN_TOKEN_HEADROOM = 2500
 
 
-def _rate_limit_wait_seconds(error: "groq.RateLimitError", attempt: int) -> float:
+def _rate_limit_wait_seconds(error: Exception, attempt: int) -> float:
     """Honors the API's own Retry-After header when present (it knows
     exactly when the limit resets); falls back to exponential backoff
     (2s, 4s, 8s, ...) otherwise. Either way, capped so one retry can't
@@ -363,13 +464,17 @@ def _has_token_headroom(min_tokens: int) -> bool:
 # falls back to this one rather than failing the request outright. Kept in
 # the same "openai/gpt-oss" family as the default primary model (see
 # suggestions.DEFAULT_MODEL) as the closest match in how it's likely to
-# follow this app's prompts, just a smaller variant.
-_FALLBACK_MODEL = os.environ.get("GROQ_FALLBACK_MODEL", "openai/gpt-oss-20b")
+# follow this app's prompts, just a smaller variant. Only meaningful for
+# Groq itself — a Groq model name won't exist on a custom OpenAI-compatible
+# endpoint, so no default fallback is applied there unless explicitly set.
+_FALLBACK_MODEL = os.environ.get(
+    "GROQ_FALLBACK_MODEL", "" if using_custom_endpoint() else "openai/gpt-oss-20b"
+)
 
 
 def _call_groq(system_prompt: str, user_content: str, temperature: float = 0.7) -> str:
     client = get_client()
-    primary_model = os.environ.get("GROQ_MODEL", DEFAULT_MODEL)
+    primary_model = get_model()
     max_tokens = min(4096, max(512, int(len(user_content.split()) * 2.5)))
 
     models_to_try = [primary_model]
@@ -390,31 +495,34 @@ def _call_groq(system_prompt: str, user_content: str, temperature: float = 0.7) 
         retries_for_this_model = _MAX_RATE_LIMIT_RETRIES if is_last_model else 0
         for attempt in range(retries_for_this_model + 1):
             try:
-                # with_raw_response gives access to Groq's rate-limit
-                # headers (remaining tokens/requests, reset time) alongside
-                # the normal parsed completion — used to let the closed
-                # loop see its own remaining budget and back off before
-                # hitting the limit, rather than only ever finding out by
-                # way of a failed call.
+                # with_raw_response gives access to rate-limit headers
+                # (remaining tokens/requests, reset time) alongside the
+                # normal parsed completion, where the provider sends them
+                # (Groq does; a custom endpoint may not, in which case
+                # these just come back absent and the headroom check below
+                # fails open) — used to let the closed loop see its own
+                # remaining budget and back off before hitting the limit,
+                # rather than only ever finding out by way of a failed call.
                 response = client.chat.completions.with_raw_response.create(
                     model=model,
                     temperature=temperature,
                     max_tokens=max_tokens,
-                    # gpt-oss models spend an unpredictable chunk of the
-                    # token budget on hidden reasoning before emitting
-                    # visible content; without capping that effort, a
-                    # short max_tokens budget can get eaten entirely by
-                    # reasoning and truncate the actual output mid-sentence.
-                    reasoning_effort="low",
                     messages=[
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_content},
                     ],
+                    **reasoning_kwargs(),
                 )
                 _update_rate_limit_state(response.headers)
                 completion = response.parse()
-                return completion.choices[0].message.content.strip()
-            except groq.RateLimitError as e:
+                content = completion.choices[0].message.content.strip()
+                # Defensive second layer on top of reasoning_kwargs(): a
+                # "thinking" model can still emit a <think>...</think>
+                # block inline in content regardless of the
+                # enable_thinking setting, which would otherwise leak
+                # straight into the humanized output.
+                return strip_thinking(content)
+            except _RATE_LIMIT_ERRORS as e:
                 last_error = e
                 if attempt >= retries_for_this_model:
                     break  # give up on this model; try the next one, if any
@@ -440,16 +548,25 @@ def _quality_check_pass(original_content: str, rewrite: str, profile: Optional[d
         return rewrite
 
 
-# Below this fraction of the original word count, a rewrite is treated as an
-# accidental summary (the model condensed instead of rewrote) rather than a
-# legitimately tighter phrasing, and gets one retry with a blunter prompt.
-# Also used as a hard floor throughout the closed-loop refinement rounds
-# below (see _length_issue) — not just the first draft — since the
-# analyzer's own signals don't penalize brevity: a heavily truncated,
-# choppy result can look "clean" to a surface-pattern scorer precisely
-# because there's less text left for its rules to find anything wrong
-# with, even though it dropped most of the source's actual content.
+# Acceptable word-count range relative to the original, as a ratio.
+# Below _MIN: treated as an accidental summary (content dropped). Above
+# _MAX: treated as padding or, worse, fabrication — new claims, topics, or
+# detail invented to fill space. Both directions matter and both get
+# enforced as a hard floor/ceiling everywhere a candidate gets scored or
+# selected (_length_issue, _candidate_rank, _generate_best_initial_draft),
+# not just the first draft, because the analyzer's own signals don't
+# penalize either failure mode on their own: a heavily truncated result
+# can look "clean" to a surface-pattern scorer precisely because there's
+# less text left for its rules to find anything wrong with, and — this
+# one bit harder in practice — an *expanded*, elaborated result can score
+# *better* on signals like specificity (more named detail, even invented
+# detail, reads as less generic) and perplexity (more varied phrasing).
+# Without an explicit ceiling, best-of-N candidate selection (see
+# _generate_best_initial_draft) would have a real incentive to reward
+# fabrication as long as it happened to read as detector-clean — this
+# ceiling exists specifically to close that loophole.
 _MIN_LENGTH_RATIO = 0.6
+_MAX_LENGTH_RATIO = 1.35
 
 
 def _length_ratio(original_content: str, text: str) -> float:
@@ -460,34 +577,107 @@ def _length_ratio(original_content: str, text: str) -> float:
 
 
 def _length_issue(original_content: str, text: str) -> Optional[str]:
-    """Returns a revision instruction if `text` has been cut down too far
-    relative to `original_content`, else None. Only applies once the source
-    is long enough that "roughly the same length" is a meaningful ask."""
+    """Returns a revision instruction if `text` has drifted too far from
+    original_content's length in either direction, else None. Only applies
+    once the source is long enough that "roughly the same length" is a
+    meaningful ask."""
     if len(original_content.split()) < 20:
         return None
     ratio = _length_ratio(original_content, text)
-    if ratio >= _MIN_LENGTH_RATIO:
-        return None
-    return (
-        f"The current text has been cut down to only about {round(ratio * 100)}% of the "
-        f"ORIGINAL SOURCE's length — this is a serious problem, not a stylistic choice. "
-        f"Restore the missing content: every point made in the ORIGINAL SOURCE should "
-        f"still be present here, reworded but not dropped. Do not summarize."
-    )
+    if ratio < _MIN_LENGTH_RATIO:
+        return (
+            f"The current text has been cut down to only about {round(ratio * 100)}% of the "
+            f"ORIGINAL SOURCE's length — this is a serious problem, not a stylistic choice. "
+            f"Restore the missing content: every point made in the ORIGINAL SOURCE should "
+            f"still be present here, reworded but not dropped. Do not summarize."
+        )
+    if ratio > _MAX_LENGTH_RATIO:
+        return (
+            f"The current text has expanded to about {round(ratio * 100)}% of the ORIGINAL "
+            f"SOURCE's length — this is a serious problem: it means claims, topics, or detail "
+            f"have been added that are NOT in the original. Cut it back down to only what the "
+            f"ORIGINAL SOURCE actually says, reworded but not padded or expanded with anything new."
+        )
+    return None
+
+
+# Above this, a candidate is treated as not having been genuinely
+# rewritten — a near-verbatim (or fully verbatim) copy of the source
+# rather than a paraphrase. This exists because of a real, observed
+# failure: this app's own scoring signals (rule-based vocabulary/structure
+# checks, local perplexity) can't tell the difference between "genuinely
+# natural, well-rewritten text" and "an unmodified copy of source text
+# that never used any AI-sounding vocabulary in the first place" — a
+# plainly-written original scores just as "clean" copied verbatim as it
+# would properly paraphrased. Without this check, best-of-N candidate
+# selection (see _generate_best_initial_draft) has no way to prefer a
+# genuine rewrite over a draft that scored well by doing nothing.
+_MAX_VERBATIM_OVERLAP = 0.65
+
+
+def _verbatim_overlap_ratio(original: str, text: str) -> float:
+    """Paragraph-by-paragraph text-similarity ratio (0 = nothing alike,
+    1 = identical) between `original` and `text`, averaged across however
+    many paragraphs they have in common. Uses difflib's sequence-matching
+    ratio rather than an exact-equality check specifically so a
+    near-copy — the same sentences with a handful of words swapped — gets
+    caught too, not just a byte-for-byte duplicate."""
+    orig_paras = [p.strip().lower() for p in re.split(r"\n\s*\n", original) if p.strip()]
+    text_paras = [p.strip().lower() for p in re.split(r"\n\s*\n", text) if p.strip()]
+    if not orig_paras or not text_paras:
+        return 0.0
+    n = min(len(orig_paras), len(text_paras))
+    ratios = [
+        difflib.SequenceMatcher(None, orig_paras[i], text_paras[i]).ratio()
+        for i in range(n)
+    ]
+    return sum(ratios) / len(ratios)
 
 
 def _candidate_rank(original_content: str, text: str, score: float) -> tuple:
-    """Sort key for picking the best candidate across refinement rounds.
-    A candidate that dropped too much content always loses to one that
-    didn't, regardless of how low its detector score is — length is a hard
-    constraint here, not one more signal to trade off against the rest.
-    Among length-compliant candidates, lower detector score wins; among
-    non-compliant ones (worst case: every round still came back short),
-    the longest — i.e. least-truncated — one wins instead."""
+    """Sort key for picking the best candidate, used both across
+    closed-loop refinement rounds and across independent best-of-N first
+    drafts (see _generate_best_initial_draft). A candidate that fails
+    either hard content-fidelity check — length drifted outside
+    [_MIN_LENGTH_RATIO, _MAX_LENGTH_RATIO], or it's too close to a
+    verbatim copy of the source (see _MAX_VERBATIM_OVERLAP) — always
+    loses to one that passes both, regardless of how low its detector
+    score is; both are hard constraints here, not signals to trade off
+    against the rest, precisely because a truncated, expanded/fabricated,
+    OR simply unrewritten candidate can otherwise look "better" by the
+    detector score alone. Among candidates that pass both checks, lower
+    detector score wins; among ones that don't (worst case: nothing in
+    this batch passed), whichever comes closest wins instead — an extreme
+    failure is worse than a mild one."""
     ratio = _length_ratio(original_content, text)
-    if ratio >= _MIN_LENGTH_RATIO:
+    length_ok = _MIN_LENGTH_RATIO <= ratio <= _MAX_LENGTH_RATIO
+    verbatim = _verbatim_overlap_ratio(original_content, text)
+    transformed_ok = verbatim <= _MAX_VERBATIM_OVERLAP
+
+    if length_ok and transformed_ok:
         return (0, score)
-    return (1, -ratio)
+    if not length_ok:
+        distance = (_MIN_LENGTH_RATIO - ratio) if ratio < _MIN_LENGTH_RATIO else (ratio - _MAX_LENGTH_RATIO)
+        return (1, distance)
+    return (1, verbatim)
+
+
+def _verbatim_issue(original_content: str, text: str) -> Optional[str]:
+    """Sibling of _length_issue for the other hard content-fidelity
+    check: returns a revision instruction if `text` is too close to a
+    verbatim copy of original_content, else None."""
+    if len(original_content.split()) < 20:
+        return None
+    if _verbatim_overlap_ratio(original_content, text) <= _MAX_VERBATIM_OVERLAP:
+        return None
+    return (
+        "Large parts of the current text are still nearly word-for-word identical to the "
+        "ORIGINAL SOURCE — this means genuine rewriting hasn't actually happened yet, even "
+        "if surface fixes were applied elsewhere. Every sentence needs to be reworded in "
+        "different words and a different structure than the ORIGINAL SOURCE, not left "
+        "as-is or only lightly touched, even where the source's own wording was already "
+        "plain and simple."
+    )
 
 
 def humanize_content(
@@ -527,36 +717,108 @@ def humanize_with_score(
         + _style_guidelines_block(relevant_examples)
         + '\n\nReturn ONLY the rewritten text, nothing else. No preamble, no markdown headers, no quotation marks wrapping the whole output.'
     )
-    # Higher than the _call_groq default (0.7): a close paraphrase at low
-    # temperature stays anchored near the original's own token-probability
-    # distribution — which is exactly what a statistical/perplexity-based
-    # detector keys on, independent of any surface wording — so the first
-    # draft deliberately asks for more lexical/structural risk-taking.
-    rewrite = _call_groq(system_prompt, content, temperature=0.95)
-    rewrite = _guard_against_summarizing(system_prompt, content, rewrite)
-    rewrite = _guard_against_paragraph_collapse(system_prompt, content, rewrite)
-    # No quality-check pass here — it runs once, at the very end of
-    # _refine_against_detector, on whichever candidate across all rounds
-    # actually wins, rather than once per round. Every Groq call in this
-    # pipeline draws down the same account-level token budget, and a
-    # per-round quality check was the single largest avoidable share of
-    # that (as many calls as refinement rounds, on top of everything
-    # else) for a check that only matters on the text actually returned.
-    candidate = scrub_ai_signals(rewrite, original=content)
+    candidate, _first_draft_score = _generate_best_initial_draft(system_prompt, content, profile)
+    final_text, final_score = _refine_against_detector(candidate, content, profile)
 
-    return _refine_against_detector(candidate, content, profile)
+    # Runs unconditionally, on whatever the closed loop decided was best —
+    # not gated by score, since no signal this app has can detect the
+    # pattern it targets (see _reduce_aphorisms). A separate, focused pass
+    # rather than folding into the loop above, so it actually happens
+    # regardless of whether that loop found anything else worth revising.
+    final_text = _reduce_aphorisms(final_text, profile)
+    final_text = scrub_ai_signals(final_text, original=content)
+
+    return final_text, final_score
+
+
+# How many independent first drafts to generate and score before handing
+# the best one to the closed-loop refiner — "retry until we've got a good
+# one" for the part of the pipeline where retrying actually means something
+# (an independent generation, not a resend of the same request). Capped
+# low by default: this is pure upside when there's API headroom to spare,
+# but each extra draft is a full additional call, so it stays opt-in-sized
+# rather than assumed. Override via HUMANIZE_BEST_OF_N if the configured
+# provider has the throughput for more.
+_BEST_OF_N_DRAFTS = int(os.environ.get("HUMANIZE_BEST_OF_N", "3"))
+
+
+def _generate_best_initial_draft(
+    system_prompt: str, content: str, profile: Optional[dict]
+) -> Tuple[str, float]:
+    """Generates up to _BEST_OF_N_DRAFTS independent first drafts (each at
+    high temperature for real variation between attempts, not just
+    resends) and keeps whichever one ranks best by _candidate_rank — this
+    is the literal "retry until we find the best one" the closed-loop
+    refinement can't offer on its own, since it revises a single draft
+    forward rather than exploring alternatives.
+
+    Selection is length-gated via _candidate_rank, not raw detector score:
+    a draft that expanded past _MAX_LENGTH_RATIO — i.e. invented content
+    to fill space — can otherwise look like the "best" draft precisely
+    because the added (fabricated) detail reads as more specific/varied to
+    the detector signals. That candidate must never win just for gaming
+    the score that way, so length compliance is checked before score ever
+    factors in.
+
+    Stops early the moment a draft is both length-compliant and already
+    clears the refinement loop's own target (_TARGET_SCORE_PCT) — no
+    reason to spend further calls generating alternatives once one is
+    already good, which keeps the common case cheap and reserves the extra
+    attempts for inputs that actually need them.
+    """
+    best_text: Optional[str] = None
+    best_score = float("inf")
+    best_rank: Optional[tuple] = None
+
+    for _ in range(max(_BEST_OF_N_DRAFTS, 1)):
+        # Higher than the _call_groq default (0.7): a close paraphrase at
+        # low temperature stays anchored near the original's own
+        # token-probability distribution — which is exactly what a
+        # statistical/perplexity-based detector keys on, independent of
+        # any surface wording — so each draft deliberately asks for more
+        # lexical/structural risk-taking, and a fresh call at this
+        # temperature also gives each attempt real variety instead of
+        # being a near-duplicate of the last.
+        rewrite = _call_groq(system_prompt, content, temperature=0.95)
+        rewrite = _guard_against_summarizing(system_prompt, content, rewrite)
+        rewrite = _guard_against_expansion(system_prompt, content, rewrite)
+        rewrite = _guard_against_verbatim_copy(system_prompt, content, rewrite)
+        rewrite = _guard_against_paragraph_collapse(system_prompt, content, rewrite)
+        # No quality-check pass here — it runs once, at the very end of
+        # _refine_against_detector, on whichever candidate across every
+        # draft and every refinement round actually wins, rather than on
+        # every attempt along the way.
+        candidate = scrub_ai_signals(rewrite, original=content)
+
+        score, _signals = _score_candidate(candidate)
+        rank = _candidate_rank(content, candidate, score)
+        if best_rank is None or rank < best_rank:
+            best_text, best_score, best_rank = candidate, score, rank
+        if best_rank[0] == 0 and best_score <= _TARGET_SCORE_PCT:
+            break
+
+    return best_text, best_score
 
 
 # Weight given to the local perplexity/burstiness signal (perplexity.py)
 # versus the rule-based analyzer's own weighted score, when blending them
-# into the single overall score the closed loop optimizes against. Kept a
-# minority share deliberately: the rule-based signals come with concrete,
+# into the single overall score the closed loop optimizes against.
+#
+# Lowered from 0.35 to 0.20 on a specific, confirmed weakness rather than
+# general caution: testing this signal against real third-party-flagged
+# text earlier (sentence-level GPT-2 perplexity compared against which
+# sentences an actual detector had flagged) showed close to no
+# correlation — GPT-2-small's token-probability landscape is a 2019-era
+# model and doesn't track well with what a modern detector flags as
+# "predictable." It's kept in the blend rather than dropped entirely
+# (it's still a real, if noisy, statistical signal, and occasionally
+# useful as a tiebreak), but it no longer gets a share large enough to
+# meaningfully outvote the rule-based signals, which come with concrete,
 # targeted fixes the revision prompt can act on (a specific overused
-# phrase, a specific negative-parallelism construction), while perplexity
-# is a diffuse "read as more/less predictable overall" signal with no
-# single sentence to point at — useful as a check on the rest, less useful
-# as the dominant driver of what to edit.
-_PERPLEXITY_WEIGHT = 0.35
+# phrase, a specific negative-parallelism construction) rather than a
+# diffuse "read as more/less predictable overall" verdict with no single
+# sentence to point at.
+_PERPLEXITY_WEIGHT = 0.20
 
 
 def _score_candidate(candidate: str) -> Tuple[float, dict]:
@@ -625,9 +887,10 @@ def _refine_against_detector(
 
         for _ in range(_MAX_REFINEMENT_ROUNDS):
             length_issue = _length_issue(original_content, current)
+            verbatim_issue = _verbatim_issue(original_content, current)
             worst_signal = max(signals.values()) if signals else 0.0
             signals_ok = score <= _TARGET_SCORE_PCT and worst_signal <= _SIGNAL_HARD_CAP
-            if signals_ok and not length_issue:
+            if signals_ok and not length_issue and not verbatim_issue:
                 break
             if not _has_token_headroom(_MIN_TOKEN_HEADROOM):
                 # Preserve whatever budget is left rather than spend it on
@@ -638,10 +901,13 @@ def _refine_against_detector(
                 break
 
             issues = _build_signal_feedback(signals)
+            # Both hard content-fidelity issues take priority over chasing
+            # remaining surface signals — a "cleaner"-scoring result isn't
+            # an improvement if it got that way by cutting content, or by
+            # never having been rewritten in the first place.
+            if verbatim_issue:
+                issues = [verbatim_issue] + issues
             if length_issue:
-                # Restoring dropped content takes priority over chasing
-                # remaining surface signals — a shorter "cleaner" result is
-                # not an improvement if it got that way by cutting content.
                 issues = [length_issue] + issues
             if not issues:
                 break
@@ -715,6 +981,88 @@ def _guard_against_summarizing(system_prompt: str, content: str, rewrite: str) -
         )
         retried = _call_groq(retry_prompt, content, temperature=0.7)
         if len(retried.split()) > rewrite_words:
+            return retried
+        return rewrite
+    except Exception:
+        return rewrite
+
+
+def _guard_against_expansion(system_prompt: str, content: str, rewrite: str) -> str:
+    """One retry, with a blunter instruction, if the model padded the
+    input well past its original length — the mirror image of
+    _guard_against_summarizing, but a more serious failure mode: added
+    length isn't just a style problem, it means the rewrite contains
+    claims, examples, or entire topics the source never actually stated
+    (observed directly: a 2-sentence, ~25-word input came back as an
+    8-sentence, ~140-word piece discussing data-driven decision-making and
+    continuous learning — neither mentioned anywhere in the source).
+    Applied per-draft in _generate_best_initial_draft, before ranking, so
+    an over-expanded draft gets a chance to self-correct immediately
+    rather than only being caught later by _length_issue in the
+    refinement loop (which only gets _MAX_REFINEMENT_ROUNDS attempts total,
+    shared with every other issue that might need fixing).
+    Fails safe: on any error, or if the retry is no better, keeps the
+    original rewrite rather than losing it."""
+    original_words = len(content.split())
+    rewrite_words = len(rewrite.split())
+    if original_words < 20 or rewrite_words <= original_words * _MAX_LENGTH_RATIO:
+        return rewrite
+    if not _has_token_headroom(_MIN_TOKEN_HEADROOM):
+        return rewrite
+
+    try:
+        retry_prompt = (
+            system_prompt
+            + f"\n\nYour previous attempt padded the content: it returned {rewrite_words} "
+              f"words for a {original_words}-word input. That means you added claims, "
+              f"examples, or topics that are NOT in the original — a serious error, not a "
+              f"style choice. Rewrite ONLY what the input actually says, reworded but not "
+              f"expanded. Do not add anything the input didn't already say."
+        )
+        # Lower temperature than the other guard retries (0.5, vs 0.7) —
+        # this one specifically needs LESS creative latitude, not more;
+        # the failure mode here is the model inventing content, so the
+        # retry should stay as close to the source as possible.
+        retried = _call_groq(retry_prompt, content, temperature=0.5)
+        if len(retried.split()) < rewrite_words:
+            return retried
+        return rewrite
+    except Exception:
+        return rewrite
+
+
+def _guard_against_verbatim_copy(system_prompt: str, content: str, rewrite: str) -> str:
+    """One retry, with an explicit instruction, if the model returned
+    something too close to a verbatim copy of the input instead of
+    genuinely rewriting it — observed directly: a plainly-worded source
+    with no AI-sounding vocabulary to begin with can come back nearly
+    word-for-word identical, since there's nothing for a model chasing
+    "sound natural" instructions to obviously fix. Applied per-draft in
+    _generate_best_initial_draft, before ranking, for the same reason as
+    the other guards — catch it immediately rather than relying solely on
+    _verbatim_issue in the refinement loop, which only gets
+    _MAX_REFINEMENT_ROUNDS attempts shared with every other issue.
+    Fails safe: on any error, or if the retry is no better, keeps the
+    original rewrite rather than losing it."""
+    if not _verbatim_issue(content, rewrite):
+        return rewrite
+    if not _has_token_headroom(_MIN_TOKEN_HEADROOM):
+        return rewrite
+
+    try:
+        before_ratio = _verbatim_overlap_ratio(content, rewrite)
+        retry_prompt = (
+            system_prompt
+            + f"\n\nYour previous attempt was too close to a verbatim copy of the input "
+              f"(roughly {round(before_ratio * 100)}% textually identical) instead of a "
+              f"genuine rewrite. This happens even when the source is already plainly "
+              f"worded — plain wording still needs to be genuinely reworded into different "
+              f"words and a different sentence structure, not left as-is. Rewrite every "
+              f"sentence so it reads differently from the input, while keeping the same "
+              f"meaning, length, and paragraph structure."
+        )
+        retried = _call_groq(retry_prompt, content, temperature=0.9)
+        if _verbatim_overlap_ratio(content, retried) < before_ratio:
             return retried
         return rewrite
     except Exception:

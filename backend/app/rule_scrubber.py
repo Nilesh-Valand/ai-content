@@ -193,6 +193,12 @@ VOCAB_REPLACEMENTS: Dict[str, str] = {
     "read on to learn": "keep reading for",
     "keep reading to": "continue reading to",
     "stay tuned for": "watch for",
+    # Canonical short-maxim clichés
+    "is key to": "matters for", "is key": "matters",
+    "practice makes perfect": "practice helps",
+    "slow and steady wins the race": "steady effort pays off",
+    "what matters most": "the main thing",
+    "what matters is": "the main thing is",
 }
 
 # Sanity check: every word/phrase the detector can flag has a replacement.
@@ -218,27 +224,82 @@ def _substitute_vocab(text: str) -> str:
     return _VOCAB_PATTERN.sub(repl, text)
 
 
+# A line that IS a list item: a real bullet, a markdown-style hyphen/asterisk
+# bullet (the LLM's own inconsistent default — see _normalize_list_markers),
+# or a "1. "/"1)" numbered marker, each followed by real content.
+_LIST_LINE_PATTERN = re.compile(r"^\s*(?:[•‣◦⁃\-*]|\d+[.)])\s+\S")
+
+
+def _is_list_line(line: str) -> bool:
+    return bool(_LIST_LINE_PATTERN.match(line))
+
+
+def _strip_crutch_from_sentence(sentence: str) -> str:
+    stripped = sentence.strip()
+    lower = stripped.lower()
+    for crutch in SENTENCE_OPENER_CRUTCHES:
+        prefix = crutch + ","
+        if lower.startswith(prefix):
+            rest = stripped[len(prefix):].lstrip()
+            if rest:
+                rest = rest[:1].upper() + rest[1:]
+            return rest
+    return stripped
+
+
 def _strip_crutch_openers(text: str) -> str:
     """Removes a sentence-opener crutch ("Furthermore, ...") entirely when
     it's immediately followed by a comma — only that specific, unambiguous
-    shape is touched, so this never risks cutting into a real sentence."""
-    doc = get_nlp()(text)
-    sentences = [sent.text for sent in doc.sents]
-    fixed = []
-    for sent in sentences:
-        stripped = sent.strip()
-        lower = stripped.lower()
-        for crutch in SENTENCE_OPENER_CRUTCHES:
-            prefix = crutch + ","
-            if lower.startswith(prefix):
-                rest = stripped[len(prefix):].lstrip()
-                if rest:
-                    rest = rest[:1].upper() + rest[1:]
-                stripped = rest
-                break
-        if stripped:
-            fixed.append(stripped)
-    return " ".join(fixed)
+    shape is touched, so this never risks cutting into a real sentence.
+
+    Processes paragraph by paragraph (rather than running spaCy sentence
+    splitting across the whole document and rejoining everything with a
+    single space) so paragraph breaks survive this pass intact. Without
+    that, every call would flatten the entire document into one block and
+    leave restore_paragraph_structure (see scrub_ai_signals) to
+    reconstruct paragraphs from scratch by word-weight redistribution —
+    which reliably gets the paragraph *count* right but doesn't preserve
+    which sentences the model actually grouped together, since it's
+    working from a proportional guess rather than the model's real
+    grouping. Splitting per-paragraph here means that reconstruction step
+    only has to do real work on genuinely collapsed input, which is what
+    it's actually for.
+
+    A "paragraph" that's actually a list block (its lines are bullet/number
+    items) is handled per-line instead: each line is crutch-stripped on its
+    own and rejoined with "\\n", never merged into one space-joined run —
+    the ordinary prose path's sentence-split-then-rejoin-with-" " would
+    otherwise collapse "• Save time... • Smarter choices..." into a single
+    run-on line, destroying the list."""
+    paragraphs = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
+    fixed_paragraphs = []
+    for para in paragraphs:
+        lines = para.split("\n")
+        if any(_is_list_line(line) for line in lines):
+            fixed_lines = [_strip_crutch_from_sentence(line) for line in lines if line.strip()]
+            fixed_lines = [line for line in fixed_lines if line]
+            if fixed_lines:
+                fixed_paragraphs.append("\n".join(fixed_lines))
+            continue
+
+        doc = get_nlp()(para)
+        sentences = [sent.text for sent in doc.sents]
+        fixed = [f for f in (_strip_crutch_from_sentence(s) for s in sentences) if f]
+        if fixed:
+            fixed_paragraphs.append(" ".join(fixed))
+    return "\n\n".join(fixed_paragraphs)
+
+
+# Markdown-style bullet markers (hyphen, asterisk) the LLM defaults to
+# despite being told to use a real bullet character — normalized here
+# deterministically so the output is never at the mercy of the model
+# actually following that instruction. Numbered markers ("1. ") are left
+# alone since they're already what we want.
+_LIST_MARKER_PATTERN = re.compile(r"^(\s*)[\-*]\s+(?=\S)", re.MULTILINE)
+
+
+def _normalize_list_markers(text: str) -> str:
+    return _LIST_MARKER_PATTERN.sub(lambda m: m.group(1) + "• ", text)
 
 
 def _reduce_em_dashes(text: str) -> str:
@@ -413,6 +474,7 @@ def scrub_ai_signals(text: str, original: Optional[str] = None) -> str:
     Fails safe: returns the input unchanged if anything goes wrong."""
     try:
         result = _strip_crutch_openers(text)
+        result = _normalize_list_markers(result)
         result = _substitute_vocab(result)
         result = _reduce_em_dashes(result)
         result = _strip_emoji(result)

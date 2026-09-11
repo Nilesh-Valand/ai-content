@@ -17,8 +17,8 @@ const mono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "ContentIQ — AI Content Detector",
-  description: "Detect AI-written content and humanize it with your own trained style.",
+  title: "ContentIQ — Humanize Content",
+  description: "Rewrite content so it reads naturally, in your own trained style.",
 };
 
 export default function RootLayout({

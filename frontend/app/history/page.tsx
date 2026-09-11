@@ -28,12 +28,6 @@ function formatDate(iso: string) {
   });
 }
 
-function verdictTheme(pct: number) {
-  if (pct >= 60) return { chip: "bg-danger-50 text-danger-600", label: "Likely AI" };
-  if (pct >= 30) return { chip: "bg-warn-50 text-warn-600", label: "Mixed" };
-  return { chip: "bg-success-50 text-success-600", label: "Likely Human" };
-}
-
 export default function HistoryPage() {
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -130,14 +124,14 @@ export default function HistoryPage() {
         <div className="max-w-2xl mb-8">
           <div className="inline-flex items-center gap-1.5 rounded-full border border-brand-200 bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-700 mb-4">
             <History className="h-3.5 w-3.5" strokeWidth={2.5} />
-            Saved Analyses
+            Saved Content
           </div>
           <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-ink">
             History
           </h1>
           <p className="text-ink-muted mt-3 text-[15px] leading-relaxed">
-            Every content analysis is saved automatically. Reopen one to see its
-            full breakdown and humanized version again.
+            Every piece of content you humanize is saved automatically. Reopen
+            one to see it and its humanized version again.
           </p>
         </div>
 
@@ -208,23 +202,22 @@ export default function HistoryPage() {
             <span className="flex h-12 w-12 items-center justify-center rounded-full bg-brand-50 text-brand-600">
               <FolderOpen className="h-6 w-6" strokeWidth={2} />
             </span>
-            <p className="text-ink font-semibold">No saved analyses yet</p>
+            <p className="text-ink font-semibold">Nothing here yet</p>
             <p className="text-sm text-ink-muted max-w-sm">
-              Analyze some content on the home page and it will show up here
+              Humanize some content on the home page and it will show up here
               automatically.
             </p>
             <Link
               href="/"
               className="inline-flex items-center gap-2 rounded-lg bg-brand-gradient text-white text-sm font-semibold px-4 py-2.5 shadow-lift hover:brightness-110 transition mt-2"
             >
-              Go to Analyzer
+              Go to Humanize
               <ArrowRight className="h-4 w-4" />
             </Link>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {projects.map((p) => {
-              const theme = verdictTheme(p.ai_writing_likelihood);
               const selected = selectedIds.has(p.id);
               return (
                 <div
@@ -234,19 +227,12 @@ export default function HistoryPage() {
                   }`}
                 >
                   <div className="flex items-start justify-between gap-2">
-                    <div className="flex items-center gap-2.5">
-                      <input
-                        type="checkbox"
-                        checked={selected}
-                        onChange={() => toggleSelect(p.id)}
-                        className="h-4 w-4 accent-brand-600 cursor-pointer shrink-0"
-                      />
-                      <span
-                        className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${theme.chip}`}
-                      >
-                        {p.ai_writing_likelihood.toFixed(0)}% · {theme.label}
-                      </span>
-                    </div>
+                    <input
+                      type="checkbox"
+                      checked={selected}
+                      onChange={() => toggleSelect(p.id)}
+                      className="h-4 w-4 accent-brand-600 cursor-pointer shrink-0"
+                    />
                     {p.has_humanized && (
                       <span className="inline-flex items-center gap-1 rounded-full bg-brand-50 text-brand-600 px-2.5 py-1 text-xs font-semibold shrink-0">
                         <Wand2 className="h-3 w-3" strokeWidth={2.5} />
