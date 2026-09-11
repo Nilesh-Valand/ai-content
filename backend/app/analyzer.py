@@ -86,21 +86,59 @@ def score_generic_promo(text_lower: str, word_count: int):
     return score, hits
 
 
+_RULE_OF_THREE_PATTERN = re.compile(
+    r"([A-Za-z][\w\-]*(?:\s+[\w\-]+){0,4}),\s*"
+    r"([A-Za-z][\w\-]*(?:\s+[\w\-]+){0,4}),?\s+(?:and|or)\s+"
+    r"([A-Za-z][\w\-]*(?:\s+[\w\-]+){0,4})"
+)
+
+# Catches the same listicle cadence with NO coordinating conjunction at all
+# -- "Apps can be lifesavers, calendars, task trackers, reminders." -- which
+# the pattern above (built around "and"/"or") can't match. Real annotated
+# output from a third-party detector flagged several sentences shaped
+# exactly like this that the "and"-only pattern missed entirely. Each item
+# capped at 3 words so an ordinary sentence with a comma or two doesn't
+# trip it -- three-plus short parallel items in a row is specifically the
+# tell being targeted here.
+_ASYNDETIC_LIST_PATTERN = re.compile(
+    r"\b(?:[A-Za-z][\w\-]*(?:\s+[\w\-]+){0,2},\s*){2,}"
+    r"[A-Za-z][\w\-]*(?:\s+[\w\-]+){0,2}[.,;]"
+)
+
+
+def _spans_overlap(a: tuple, b: tuple) -> bool:
+    return a[0] < b[1] and b[0] < a[1]
+
+
 def score_rule_of_three(text: str):
     """
     Detects patterns like:
       "enhancing productivity, fostering innovation, and driving growth"
-    i.e. three comma/and-separated parallel phrases.
+    i.e. three comma/and-or-separated parallel phrases -- or the same
+    cadence written with no conjunction at all (see
+    _ASYNDETIC_LIST_PATTERN), which is just as much of a listicle-style
+    tell but doesn't fit the "X, Y, and Z" shape.
+
+    The two patterns' matches can overlap on the same underlying list (the
+    asyndetic pattern's "two-or-more short items" can match a prefix of an
+    "X, Y, and Z" construction the first pattern already caught) -- counted
+    separately, that double-counts a single ordinary three-item list into
+    a maxed-out score. Matches are tracked by span and deduplicated so the
+    same stretch of text is never counted twice.
     """
-    pattern = re.compile(
-        r"([A-Za-z][\w\-]*(?:\s+[\w\-]+){0,4}),\s*"
-        r"([A-Za-z][\w\-]*(?:\s+[\w\-]+){0,4}),?\s+and\s+"
-        r"([A-Za-z][\w\-]*(?:\s+[\w\-]+){0,4})"
-    )
-    matches = pattern.findall(text)
-    examples = [", ".join(m) for m in matches]
+    conjunction_iter = list(_RULE_OF_THREE_PATTERN.finditer(text))
+    conjunction_spans = [m.span() for m in conjunction_iter]
+    examples = [", ".join(m.groups()) for m in conjunction_iter]
+
+    asyndetic_iter = [
+        m for m in _ASYNDETIC_LIST_PATTERN.finditer(text)
+        if not any(_spans_overlap(m.span(), s) for s in conjunction_spans)
+    ]
+    examples.extend(m.group(0).rstrip(" ,.;") for m in asyndetic_iter)
+
+    total = len(conjunction_iter) + len(asyndetic_iter)
     # normalize: 2+ rule-of-three constructions in a short text is a strong signal
-    score = min(len(matches) / 2.0, 1.0)
+    score = min(total / 2.0, 1.0)
     return score, examples
 
 
@@ -346,11 +384,13 @@ def analyze_text(text: str):
             sum(1 for tok in sent_doc if tok.pos_ == "PROPN")
         s_specificity = 1.0 - min(s_concrete / 1.0, 1.0)
         s_neg_parallel = any(p.search(sent) for p in NEGATIVE_PARALLELISM_PATTERNS)
+        s_rule3_score, _s_rule3_examples = score_rule_of_three(sent)
 
         blended = (
-            0.35 * s_vocab_density +
-            0.25 * s_generic_density +
-            0.25 * s_specificity +
+            0.30 * s_vocab_density +
+            0.20 * s_generic_density +
+            0.20 * s_specificity +
+            0.15 * s_rule3_score +
             (0.15 if s_neg_parallel else 0.0)
         )
         sentence_scores.append(

@@ -12,6 +12,13 @@ to fix without any risk of changing meaning or breaking grammar:
   - AI-associated vocabulary / generic promotional phrases -> plain synonyms
   - Sentence-opener "crutch" transitions ("Furthermore, ...") -> removed
   - Em dash overuse -> replaced with commas
+  - Emoji of every kind -> removed unconditionally
+  - Collapsed paragraph structure -> paragraph breaks re-inserted to match
+    the original's structure, proportioned by paragraph length (see
+    restore_paragraph_structure) — a wall of text with no breaks is itself
+    a recognizable AI tell, and an LLM revision pass can quietly flatten
+    structure even when told not to, so this is enforced mechanically
+    rather than left to the prompt alone.
 
 Signals that are NOT touched here on purpose, because a safe rule-based fix
 doesn't exist for them: rule-of-three restructuring, sentence-length
@@ -23,10 +30,20 @@ Fails safe: any unexpected error here returns the input text unchanged
 rather than risking mangled output.
 """
 import re
-from typing import Dict
+from typing import Dict, List, Optional
 
 from .analyzer import get_nlp
 from .wordlists import AI_ASSOCIATED_VOCAB, GENERIC_PROMOTIONAL, SENTENCE_OPENER_CRUTCHES
+
+try:
+    # Comprehensive, actively-maintained Unicode emoji data (covers keycap
+    # sequences like "1️⃣", ZWJ sequences, skin-tone modifiers, and
+    # blocks like Miscellaneous Technical U+2300-23FF that a hand-rolled
+    # range list is easy to miss — e.g. U+23F1 STOPWATCH). Falls back to the
+    # hand-rolled ranges below if the package isn't installed.
+    import emoji as _emoji_lib
+except ImportError:
+    _emoji_lib = None
 
 # Plain, natural replacements for every phrase the detector flags as
 # AI-associated vocabulary or generic promotional filler. Deliberately terse
@@ -56,7 +73,8 @@ VOCAB_REPLACEMENTS: Dict[str, str] = {
     "bespoke": "custom", "tailored solutions": "custom options",
     "game-changer": "big deal", "game changing": "big",
     "innovative solutions": "new ideas", "meticulously": "carefully",
-    "myriad": "many", "plethora": "a lot of", "top-notch": "great",
+    "myriad": "many", "myriad of": "many",
+    "plethora": "a lot of", "plethora of": "a lot of", "top-notch": "great",
     "unparalleled": "unmatched", "unprecedented": "unusual",
     "boasts a": "has a", "boasts": "has", "bolstered": "strengthened",
     "crucial": "key", "emphasizing": "stressing", "enduring": "lasting",
@@ -93,6 +111,88 @@ VOCAB_REPLACEMENTS: Dict[str, str] = {
     "natural beauty": "beauty", "nestled in": "located in",
     "in the heart of": "in the center of", "rich history": "long history",
     "rich culture": "strong culture",
+    # Additional stock transitions / hedge phrases
+    "when it comes to": "with", "at the end of the day": "in the end",
+    "in this article": "here", "in this piece": "here",
+    "let's dive in": "let's get started", "let's explore": "let's look at",
+    "without further ado": "so", "picture this": "consider this",
+    "imagine a world where": "consider a case where", "in the world of": "in",
+    "plays a vital role": "matters", "play a vital role": "matter",
+    "plays a crucial role": "matters", "play a crucial role": "matter",
+    "is a great way to": "helps", "there are a few reasons why": "here's why",
+    "it's important to remember": "remember", "not to mention": "and",
+    "in essence": "in short", "in a nutshell": "in short",
+    "all in all": "overall", "first and foremost": "first",
+    "needless to say": "of course", "the bottom line": "the key point",
+    "at its core": "at heart", "as we navigate": "as we deal with",
+    "as we delve": "as we look into",
+    "in the ever-changing world of": "in", "in the realm of": "in",
+    "the realm of": "the field of",
+    "unlock new possibilities": "open up new options",
+    "open up new possibilities": "open up new options",
+    "take it to the next level": "improve it further",
+    "push the boundaries": "go further", "redefine": "change",
+    "redefining": "changing", "reimagine": "rethink",
+    "reimagining": "rethinking", "trailblazing": "pioneering",
+    "trailblazer": "pioneer", "a beacon of": "a symbol of",
+    "look no further": "consider this", "look no further than": "consider",
+    "whether you're a beginner or an expert": "no matter your experience level",
+    "in the digital era": "today", "digital landscape": "digital space",
+    "fast-paced digital world": "fast-moving digital space",
+    "ever-changing": "changing", "fast-paced": "fast-moving",
+    "in recent years": "recently", "in an era where": "at a time when",
+    "as technology continues to evolve": "as technology changes",
+    "the possibilities are endless": "there's a lot you can do",
+    "a double-edged sword": "a trade-off",
+    "food for thought": "something to consider",
+    "a breath of fresh air": "a welcome change",
+    "unwavering commitment": "strong commitment", "unwavering": "steady",
+    "of utmost importance": "very important", "utmost importance": "high importance",
+    "gold standard": "benchmark", "tailor-made": "custom",
+    "hallmark of": "sign of", "cornerstone of": "basis of",
+    "vanguard": "front", "at the forefront of": "leading",
+    "at the forefront": "leading",
+    "forefront of": "front of", "spearhead": "lead",
+    "spearheading": "leading", "catalyst for": "driver of",
+    "linchpin": "key part", "keystone of": "key part of",
+    "no stone unturned": "covered everything",
+    "in a world where": "at a time when",
+    "it goes without saying": "clearly",
+    "the fact of the matter is": "the truth is",
+    "suffice it to say": "put simply",
+    "when all is said and done": "in the end",
+    "sheds light on": "explains", "shed light on": "explain",
+    "shine a light on": "points out",
+    "stay ahead of the game": "stay ahead",
+    "unlock your potential": "reach your potential",
+    "take a deep dive": "look closely", "deep-dive into": "look closely at",
+    "a wealth of": "a lot of", "a myriad of": "many",
+    "a plethora of": "a lot of", "speaks volumes": "says a lot",
+    "at the intersection of": "combining", "the intersection of": "the overlap of",
+    # Additional promotional filler
+    "unmatched quality": "high quality", "unmatched": "excellent",
+    "exceptional quality": "high quality", "peace of mind": "confidence",
+    "tailored to your needs": "customized for you", "one-of-a-kind": "unique",
+    "second to none": "the best", "hassle-free": "easy",
+    "user-friendly experience": "easy-to-use experience",
+    "effortlessly": "easily", "elevate your": "improve your",
+    "to new heights": "further", "unlock your": "improve your",
+    "unlock unparalleled": "provide excellent",
+    "designed to help you": "built to help you",
+    "designed to empower": "built to help",
+    "empowering you to": "helping you",
+    "packed with features": "full of features",
+    "your one-stop shop": "your single source", "your go-to": "your top choice",
+    "game-changing": "significant", "revolutionary": "new",
+    "must-have": "essential", "a must for": "essential for",
+    "the ultimate guide": "a complete guide",
+    "everything you need to know": "what you need to know",
+    "in this comprehensive guide": "in this guide",
+    "comprehensive guide": "full guide", "dive deeper": "look closer",
+    "read on to discover": "keep reading for",
+    "read on to learn": "keep reading for",
+    "keep reading to": "continue reading to",
+    "stay tuned for": "watch for",
 }
 
 # Sanity check: every word/phrase the detector can flag has a replacement.
@@ -142,22 +242,184 @@ def _strip_crutch_openers(text: str) -> str:
 
 
 def _reduce_em_dashes(text: str) -> str:
-    """Matches the analyzer's own overuse threshold (score_em_dash_overuse):
-    only acts once there are 2+ em dashes, otherwise leaves a single
-    legitimate one alone."""
-    if text.count("—") < 2:
+    """Removes every em dash, not just this app's own overuse threshold
+    (2+, see score_em_dash_overuse) — third-party detectors and AI-savvy
+    readers commonly treat even a single em dash as a tell, since it's a
+    punctuation mark ChatGPT-era models reach for far more than most human
+    writers do. A comma reads naturally in virtually every place an em dash
+    would have gone."""
+    if "—" not in text:
         return text
     return re.sub(r"\s*—\s*", ", ", text)
 
 
-def scrub_ai_signals(text: str) -> str:
+# Fallback only — used if the `emoji` package (see import at top) isn't
+# installed. Emoji + pictograph/symbol ranges (not spoken-language
+# punctuation), plus the variation-selector, zero-width-joiner, and
+# combining-enclosing-keycap code points used to combine them into sequences
+# like "1️⃣" or "👩‍💻". The user's writing profile should never come back
+# with decoration the LLM added on its own — this is a hard, unconditional
+# strip, independent of whatever the prompt asked for.
+_EMOJI_PATTERN = re.compile(
+    "["
+    "\U0001F300-\U0001FAFF"  # symbols & pictographs, transport, supplemental symbols, emoji extensions
+    "\U00002600-\U000027BF"  # misc symbols, dingbats (includes ☀ ✅ ✨ ➡ etc.)
+    "\U0001F1E6-\U0001F1FF"  # regional indicator letters (flag emoji)
+    "\U00002190-\U000021FF"  # arrows (➡ often rendered from this block too)
+    "\U00002300-\U000023FF"  # misc technical (⏱ ⌛ ⏰ ⏳ ⌚ etc.)
+    "\U00002B00-\U00002BFF"  # misc symbols & arrows (⭐ ⬆ ⬇ etc.)
+    "\U0000FE0F"             # variation selector-16 (emoji presentation)
+    "\U0000200D"             # zero-width joiner (combines emoji sequences)
+    "\U000020E3"             # combining enclosing keycap (1️⃣ 2️⃣ ... #️⃣)
+    "]+",
+)
+
+
+def _strip_emoji(text: str) -> str:
+    if _emoji_lib is not None:
+        return _emoji_lib.replace_emoji(text, replace="")
+    return _EMOJI_PATTERN.sub("", text)
+
+
+# Invisible/lookalike unicode characters an LLM occasionally emits (a
+# non-breaking hyphen instead of a plain "-", a non-breaking space, a
+# zero-width space, a stray byte-order mark) -- harmless to detectors, but
+# copy-pasted "perfect" output shouldn't carry invisible characters that can
+# render oddly or break search/highlighting in whatever tool it lands in.
+# Written as \u escapes rather than the literal glyphs, since most of
+# these are by definition invisible in a normal editor view.
+_TYPOGRAPHY_NORMALIZATION = {
+    "\u2011": "-",  # non-breaking hyphen
+    "\u00a0": " ",  # non-breaking space
+    "\u200b": "",   # zero-width space
+    "\ufeff": "",   # byte-order mark
+}
+_TYPOGRAPHY_PATTERN = re.compile("|".join(_TYPOGRAPHY_NORMALIZATION))
+
+
+def _normalize_typography(text: str) -> str:
+    return _TYPOGRAPHY_PATTERN.sub(lambda m: _TYPOGRAPHY_NORMALIZATION[m.group(0)], text)
+
+
+def _normalize_whitespace(text: str) -> str:
+    """Cleanup pass after substitutions/removals: collapses doubled spaces
+    and fixes stray space-before-punctuation that a phrase swap or an
+    emoji strip can leave behind, without touching intentional formatting
+    like paragraph breaks."""
+    lines = text.split("\n")
+    fixed_lines = []
+    for line in lines:
+        fixed = re.sub(r"[ \t]{2,}", " ", line)
+        fixed = re.sub(r"\s+([,.!?;:])", r"\1", fixed)
+        fixed_lines.append(fixed.strip())
+    return "\n".join(fixed_lines)
+
+
+def _split_sentences(text: str) -> List[str]:
+    """Sentence-splits `text`, collapsing each sentence's internal
+    whitespace to single spaces. Needed because spaCy's sentencizer doesn't
+    always break exactly at a pre-existing blank-line paragraph boundary —
+    e.g. a heading line with no terminal punctuation, followed by a blank
+    line and then body text, commonly comes back as one "sentence" spanning
+    both. Splitting on blank lines first (before collapsing whitespace)
+    catches that: without it, two chunks that were really on opposite sides
+    of a paragraph break would get silently concatenated with nothing but a
+    space between them once whitespace is collapsed, or a literal embedded
+    "\\n\\n" would ride along into whichever caller re-joins these with
+    spaces (restore_paragraph_structure), producing an extra paragraph break
+    the caller never asked for."""
+    doc = get_nlp()(text)
+    pieces: List[str] = []
+    for sent in doc.sents:
+        raw = sent.text.strip()
+        if not raw:
+            continue
+        for chunk in re.split(r"\n\s*\n", raw):
+            chunk = re.sub(r"\s+", " ", chunk).strip()
+            if chunk:
+                pieces.append(chunk)
+    return pieces
+
+
+def _split_paragraphs(text: str) -> List[str]:
+    return [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
+
+
+# Below this fraction of the original paragraph count, `text` is treated as
+# having flattened the source's structure and gets paragraph breaks
+# mechanically restored (see restore_paragraph_structure). Mirrors
+# humanizer._MIN_PARAGRAPH_RATIO — kept as a separate constant since this
+# module has no dependency on humanizer.py.
+_MIN_PARAGRAPH_RATIO = 0.7
+
+
+def restore_paragraph_structure(original: str, text: str) -> str:
+    """If `text` has collapsed the paragraph breaks `original` had (e.g. an
+    LLM revision pass merged several paragraphs into one dense block, even
+    after being told not to), deterministically re-inserts paragraph breaks
+    into `text` at sentence boundaries — proportioned to match each of
+    `original`'s paragraphs' relative length, so a long original paragraph
+    still maps to a long stretch of the rewrite and a short one to a short
+    stretch. This only ever inserts blank lines between existing sentences;
+    it never touches wording, so unlike an LLM retry it can't introduce a
+    meaning or grammar defect while fixing this.
+
+    A no-op if the original doesn't have enough paragraphs to make this
+    meaningful, if `text`'s paragraph count already looks fine, or if `text`
+    doesn't have enough sentences to redistribute across the target count.
+    Fails safe: returns `text` unchanged if anything goes wrong.
+    """
+    try:
+        orig_paras = _split_paragraphs(original)
+        n = len(orig_paras)
+        if n < 3:
+            return text
+
+        if len(_split_paragraphs(text)) >= max(2, round(n * _MIN_PARAGRAPH_RATIO)):
+            return text
+
+        sentences = _split_sentences(text)
+        total_sentences = len(sentences)
+        if total_sentences < n:
+            return text
+
+        weights = [max(len(p.split()), 1) for p in orig_paras]
+        total_weight = sum(weights)
+
+        groups: List[List[str]] = []
+        start = 0
+        cum_weight = 0
+        for i, w in enumerate(weights[:-1]):
+            cum_weight += w
+            remaining_after = n - len(groups) - 1
+            lo = start + 1
+            hi = total_sentences - remaining_after
+            boundary = max(lo, min(round(total_sentences * cum_weight / total_weight), hi))
+            groups.append(sentences[start:boundary])
+            start = boundary
+        groups.append(sentences[start:])
+
+        return "\n\n".join(" ".join(g) for g in groups if g)
+    except Exception:
+        return text
+
+
+def scrub_ai_signals(text: str, original: Optional[str] = None) -> str:
     """Deterministically removes whichever of the detector's own flaggable
     surface patterns are safe to fix without risking meaning or grammar.
+    Pass `original` (the pre-humanize source text) to also mechanically
+    restore paragraph structure if it got collapsed — omit it where no
+    original is available/relevant.
     Fails safe: returns the input unchanged if anything goes wrong."""
     try:
         result = _strip_crutch_openers(text)
         result = _substitute_vocab(result)
         result = _reduce_em_dashes(result)
+        result = _strip_emoji(result)
+        result = _normalize_typography(result)
+        result = _normalize_whitespace(result)
+        if original:
+            result = restore_paragraph_structure(original, result)
         return result if result.strip() else text
     except Exception:
         return text

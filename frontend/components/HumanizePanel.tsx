@@ -54,6 +54,7 @@ export default function HumanizePanel({
   const [selectedProfileId, setSelectedProfileId] = useState<number | undefined>(undefined);
   const [selectedPhraseIds, setSelectedPhraseIds] = useState<number[]>([]);
   const [humanized, setHumanized] = useState<string | null>(initialHumanized ?? null);
+  const [aiScoreAfter, setAiScoreAfter] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -146,6 +147,7 @@ export default function HumanizePanel({
     try {
       const res = await humanizeContent(content, projectId, selectedProfileId, selectedPhraseIds);
       setHumanized(res.humanized_content);
+      setAiScoreAfter(typeof res.ai_score_after === "number" ? res.ai_score_after : null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong.");
     } finally {
@@ -335,24 +337,42 @@ export default function HumanizePanel({
           <p className="text-[15px] leading-relaxed whitespace-pre-wrap text-ink">
             {humanized}
           </p>
-          <div className="flex items-center justify-end gap-2 mt-3">
-            {copyFailed && (
-              <span className="flex items-center gap-1 text-xs text-danger-600">
-                <AlertTriangle className="h-3.5 w-3.5" />
-                Couldn&rsquo;t copy — select the text and copy manually
+          <div className="flex items-center justify-between gap-2 mt-3">
+            {aiScoreAfter !== null ? (
+              <span
+                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold ${
+                  aiScoreAfter >= 60
+                    ? "bg-danger-50 text-danger-600 border-danger-400/30"
+                    : aiScoreAfter >= 30
+                    ? "bg-warn-50 text-warn-600 border-warn-400/30"
+                    : "bg-success-50 text-success-600 border-success-400/30"
+                }`}
+                title="Re-scored with this app's own AI-writing-likelihood analyzer after humanizing"
+              >
+                Est. AI score: {aiScoreAfter.toFixed(0)}%
               </span>
+            ) : (
+              <span />
             )}
-            <button
-              onClick={handleCopy}
-              className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1.5 text-xs font-medium text-ink-muted hover:text-ink hover:border-border-strong transition-colors"
-            >
-              {copied ? (
-                <Check className="h-3.5 w-3.5 text-success-600" />
-              ) : (
-                <Copy className="h-3.5 w-3.5" />
+            <div className="flex items-center gap-2">
+              {copyFailed && (
+                <span className="flex items-center gap-1 text-xs text-danger-600">
+                  <AlertTriangle className="h-3.5 w-3.5" />
+                  Couldn&rsquo;t copy — select the text and copy manually
+                </span>
               )}
-              {copied ? "Copied" : "Copy"}
-            </button>
+              <button
+                onClick={handleCopy}
+                className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1.5 text-xs font-medium text-ink-muted hover:text-ink hover:border-border-strong transition-colors"
+              >
+                {copied ? (
+                  <Check className="h-3.5 w-3.5 text-success-600" />
+                ) : (
+                  <Copy className="h-3.5 w-3.5" />
+                )}
+                {copied ? "Copied" : "Copy"}
+              </button>
+            </div>
           </div>
         </div>
       )}

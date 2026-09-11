@@ -1,6 +1,7 @@
 import os
 from typing import List, Optional
 
+import groq
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,7 +10,7 @@ load_dotenv()
 
 from .analyzer import analyze_text
 from . import db
-from .humanizer import humanize_content
+from .humanizer import humanize_with_score
 from .models import (
     AnalyzeRequest,
     AnalyzeResponse,
@@ -152,13 +153,32 @@ def analyze(payload: AnalyzeRequest):
 @app.post("/humanize", response_model=HumanizeResponse)
 def humanize(payload: HumanizeRequest):
     try:
-        humanized = humanize_content(
+        humanized, ai_score_after = humanize_with_score(
             payload.content,
             profile_id=payload.profile_id,
             phrase_ids=payload.phrase_ids,
         )
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
+    except groq.RateLimitError as e:
+        # _call_groq (humanizer.py) already retries a 429 several times
+        # with backoff before ever raising it this far — reaching here
+        # means the account's Groq rate limit is still exhausted after
+        # those retries, so this is a real "wait longer" case, not a bug.
+        # Surface Groq's own message (which names the exact limit type —
+        # e.g. requests-per-minute vs. tokens-per-day — and how long until
+        # it resets) instead of a generic one, so this is self-diagnosing
+        # without needing to dig through server logs.
+        try:
+            groq_detail = e.body.get("error", {}).get("message") if isinstance(e.body, dict) else None
+        except Exception:
+            groq_detail = None
+        raise HTTPException(
+            status_code=429,
+            detail="Groq API rate limit reached — the humanizer makes several AI calls per "
+                   "request, so this can happen after repeated use in a short window. "
+                   + (groq_detail or "Wait a bit and try again."),
+        )
     except Exception as e:
         raise HTTPException(
             status_code=502,
@@ -172,7 +192,7 @@ def humanize(payload: HumanizeRequest):
     if payload.project_id is not None:
         db.update_project_humanized(payload.project_id, humanized)
 
-    return HumanizeResponse(humanized_content=humanized)
+    return HumanizeResponse(humanized_content=humanized, ai_score_after=ai_score_after)
 
 
 @app.post("/train/phrases", response_model=TrainedPhrase)

@@ -6,4 +6,16 @@ lexicalrichness==0.5.1
 pydantic==2.9.2
 pydantic-settings==2.5.2
 python-dotenv==1.0.1
-groq==0.11.0
+groq==1.7.0
+emoji==2.15.0
+
+# CPU-only PyTorch, for the local GPT-2 perplexity/burstiness scorer in
+# perplexity.py. The default PyPI `torch` wheel pulls in a multi-GB CUDA
+# build; installing from PyTorch's own CPU index instead keeps this small
+# and avoids requiring a GPU. Install with:
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+#   pip install -r requirements.txt
+# (torch is intentionally left out of this file itself since a plain
+# `pip install -r requirements.txt` against PyPI alone would otherwise
+# resolve it to the CUDA build.)
+transformers==5.17.0

@@ -144,6 +144,11 @@ class HumanizeRequest(BaseModel):
 
 class HumanizeResponse(BaseModel):
     humanized_content: str
+    # Re-run of this app's own AI-writing-likelihood analyzer against the
+    # humanized output, after the closed-loop detector-feedback refinement
+    # in humanizer.py. None only if scoring itself failed — the humanized
+    # text is still returned in that case.
+    ai_score_after: Optional[float] = None
 
 
 class TrainedPhraseCreate(BaseModel):

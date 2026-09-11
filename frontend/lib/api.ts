@@ -233,6 +233,7 @@ export async function deleteTrainedPhrase(id: number): Promise<void> {
 
 export interface HumanizeResponse {
   humanized_content: string;
+  ai_score_after?: number | null;
 }
 
 export async function humanizeContent(
