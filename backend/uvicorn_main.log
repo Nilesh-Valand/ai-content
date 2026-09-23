@@ -15,3 +15,12 @@ INFO:     127.0.0.1:61702 - "POST /humanize HTTP/1.1" 200 OK
 INFO:     127.0.0.1:61831 - "OPTIONS /humanize HTTP/1.1" 200 OK
 INFO:     127.0.0.1:61831 - "POST /humanize HTTP/1.1" 200 OK
 INFO:     127.0.0.1:61913 - "POST /humanize HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64188 - "GET /users HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64188 - "GET /users HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64188 - "GET /profiles?user_id=8 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64188 - "GET /train/phrases?profile_id=25 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65079 - "GET /users HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65079 - "GET /profiles?user_id=8 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65079 - "GET /train/phrases?profile_id=25 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61996 - "GET /docs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61996 - "GET /openapi.json HTTP/1.1" 200 OK

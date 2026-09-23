@@ -56,8 +56,8 @@ from .rule_scrubber import scrub_ai_signals
 from .suggestions import (
     DEFAULT_MODEL,
     get_client,
+    get_groq_fallback_client_and_model,
     get_model,
-    reasoning_kwargs,
     strip_thinking,
     using_custom_endpoint,
 )
@@ -471,29 +471,88 @@ _FALLBACK_MODEL = os.environ.get(
     "GROQ_FALLBACK_MODEL", "" if using_custom_endpoint() else "openai/gpt-oss-20b"
 )
 
+# A custom OpenAI-compatible endpoint that fronts a gateway (e.g. Open
+# WebUI in front of a self-hosted/local model like Qwen) can return a 400
+# from the GATEWAY itself when ITS backend inference engine is transiently
+# unreachable or overloaded — the connection to the actual model server
+# blipped, not anything wrong with this app's request. Observed directly:
+# {"detail": "Open WebUI: Server Connection Error"}. Since it comes back as
+# a normal 400, the openai/groq SDKs don't retry it the way they would a
+# network-level error, so it needs to be recognized and retried explicitly
+# rather than surfacing as a hard failure on every brief hiccup.
+_TRANSIENT_UPSTREAM_MARKERS = (
+    "connection error", "connection refused", "bad gateway",
+    "unreachable", "timed out", "timeout", "econnrefused",
+    "service unavailable",
+)
+_TRANSIENT_UPSTREAM_RETRIES = 1
+_TRANSIENT_UPSTREAM_WAIT_SECONDS = 3.0
+
+
+def _is_transient_upstream_error(error: Exception) -> bool:
+    if not isinstance(error, (openai.APIStatusError, groq.APIStatusError)):
+        return False
+    try:
+        body = error.body
+        if isinstance(body, dict):
+            detail = str(body.get("detail") or body.get("error") or body)
+        else:
+            detail = str(body)
+    except Exception:
+        detail = str(error)
+    detail = detail.lower()
+    return any(marker in detail for marker in _TRANSIENT_UPSTREAM_MARKERS)
+
+
+def _call_attempts() -> List[Tuple[object, str, dict]]:
+    """The ordered list of (client, model, extra_request_kwargs) to try for
+    one logical call. Always starts with the configured primary provider.
+    Then:
+      - Same-provider model fallback (existing behavior, Groq only): a
+        model that's hit its own daily quota, tried again on a sibling
+        model on the same key.
+      - When the primary provider is a custom endpoint, a last-resort
+        fallback to Groq (if GROQ_API_KEY is configured) — see
+        get_groq_fallback_client_and_model. This is what actually keeps a
+        request alive through a local-model server outage rather than
+        failing outright.
+    """
+    custom = using_custom_endpoint()
+    primary_kwargs = (
+        {"extra_body": {"chat_template_kwargs": {"enable_thinking": False}}}
+        if custom else {"reasoning_effort": "low"}
+    )
+    attempts: List[Tuple[object, str, dict]] = [(get_client(), get_model(), primary_kwargs)]
+
+    if not custom and _FALLBACK_MODEL and _FALLBACK_MODEL != get_model():
+        attempts.append((get_client(), _FALLBACK_MODEL, primary_kwargs))
+
+    if custom:
+        fallback = get_groq_fallback_client_and_model()
+        if fallback:
+            fb_client, fb_model = fallback
+            attempts.append((fb_client, fb_model, {"reasoning_effort": "low"}))
+
+    return attempts
+
 
 def _call_groq(system_prompt: str, user_content: str, temperature: float = 0.7) -> str:
-    client = get_client()
-    primary_model = get_model()
     max_tokens = min(4096, max(512, int(len(user_content.split()) * 2.5)))
-
-    models_to_try = [primary_model]
-    if _FALLBACK_MODEL and _FALLBACK_MODEL != primary_model:
-        models_to_try.append(_FALLBACK_MODEL)
+    attempts = _call_attempts()
 
     last_error: Optional[Exception] = None
-    for model_idx, model in enumerate(models_to_try):
-        is_last_model = model_idx == len(models_to_try) - 1
+    for attempt_idx, (client, model, extra_kwargs) in enumerate(attempts):
+        is_last_attempt = attempt_idx == len(attempts) - 1
         # Retrying the SAME model on a rate limit only makes sense when
         # there's no fallback to move to instead — a model that's hit its
         # own daily quota won't recover within a short backoff window
         # regardless of how many times it's retried, so when another
-        # model is available it's tried immediately rather than burning
+        # attempt is available it's tried immediately rather than burning
         # up to _MAX_RATE_LIMIT_RETRIES backoff waits first. Retries are
         # reserved for transient (e.g. per-minute burst) limits on
-        # whichever model is the last one left to try.
-        retries_for_this_model = _MAX_RATE_LIMIT_RETRIES if is_last_model else 0
-        for attempt in range(retries_for_this_model + 1):
+        # whichever attempt is the last one left to try.
+        rate_limit_retries = _MAX_RATE_LIMIT_RETRIES if is_last_attempt else 0
+        for attempt in range(max(rate_limit_retries, _TRANSIENT_UPSTREAM_RETRIES) + 1):
             try:
                 # with_raw_response gives access to rate-limit headers
                 # (remaining tokens/requests, reset time) alongside the
@@ -511,7 +570,7 @@ def _call_groq(system_prompt: str, user_content: str, temperature: float = 0.7) 
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_content},
                     ],
-                    **reasoning_kwargs(),
+                    **extra_kwargs,
                 )
                 _update_rate_limit_state(response.headers)
                 completion = response.parse()
@@ -524,9 +583,14 @@ def _call_groq(system_prompt: str, user_content: str, temperature: float = 0.7) 
                 return strip_thinking(content)
             except _RATE_LIMIT_ERRORS as e:
                 last_error = e
-                if attempt >= retries_for_this_model:
-                    break  # give up on this model; try the next one, if any
+                if attempt >= rate_limit_retries:
+                    break  # give up on this attempt; try the next one, if any
                 time.sleep(_rate_limit_wait_seconds(e, attempt))
+            except (openai.APIStatusError, groq.APIStatusError) as e:
+                last_error = e
+                if not _is_transient_upstream_error(e) or attempt >= _TRANSIENT_UPSTREAM_RETRIES:
+                    break  # not transient, or out of quick retries — try the next attempt, if any
+                time.sleep(_TRANSIENT_UPSTREAM_WAIT_SECONDS)
 
     raise last_error
 

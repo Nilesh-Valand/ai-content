@@ -78,6 +78,36 @@ def get_client():
     return _client
 
 
+_fallback_client = None
+
+
+def get_groq_fallback_client_and_model():
+    """A last-resort Groq fallback for when the configured PRIMARY provider
+    is a custom endpoint (e.g. a self-hosted/local model such as Qwen
+    behind Open WebUI) that's transiently unreachable — its own backend
+    inference server can be briefly down or overloaded even while the
+    gateway itself responds, which surfaces as a 400 from the gateway
+    rather than a clean connection error this SDK would otherwise retry.
+
+    Returns (client, model) if GROQ_API_KEY is configured, else None —
+    this is opt-in insurance, not a requirement; a custom-endpoint-only
+    setup with no Groq key configured just doesn't get this safety net.
+    Deliberately only consulted when using_custom_endpoint() is true: if
+    Groq is already the primary provider there's nothing to fall back to.
+    """
+    global _fallback_client
+    if not using_custom_endpoint():
+        return None
+    api_key = os.environ.get("GROQ_API_KEY")
+    if not api_key:
+        return None
+    if _fallback_client is None:
+        from groq import Groq
+        _fallback_client = Groq(api_key=api_key)
+    model = os.environ.get("GROQ_MODEL", DEFAULT_MODEL)
+    return _fallback_client, model
+
+
 def reasoning_kwargs() -> dict:
     """Extra request kwargs that keep a call's response to just the final
     answer, tuned per provider:
